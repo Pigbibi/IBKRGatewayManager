@@ -6,3 +6,5 @@ RUN apt-get update && \
     pip3 install pyotp --break-system-packages && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
+
+USER ibgateway
