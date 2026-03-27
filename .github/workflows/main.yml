@@ -55,16 +55,10 @@ jobs:
             echo "Waiting for container to stabilize..."
             sleep 30
 
-            # --- Start Bot and ensure it runs as a daemon ---
-            # 1. Kill any existing bot processes to avoid conflicts
-            sudo docker exec ib-gateway pkill -f 2fa_bot.py || true
-            
-            # 2. Start the bot using nohup for background persistence
-            sudo docker exec -d ib-gateway bash -c "nohup python3 /home/ibgateway/2fa_bot.py > /home/ibgateway/2fa.log 2>&1 &"
-
-            # 3. Verify bot started successfully
+            # Install host-level watcher so the bot is restored after VM/container restarts.
+            sudo bash ./scripts/install_2fa_bot_watcher.sh
             sleep 5
-            sudo docker exec ib-gateway pgrep -f 2fa_bot.py && echo "✅ Bot started successfully." || echo "⚠️ Warning: Bot may not have started, check logs."
+            sudo systemctl status ibkr-2fa-bot.timer --no-pager
 
             echo "✅ Deployment complete. Bot is monitoring the login window."
             echo "Run 'docker exec ib-gateway tail -f /home/ibgateway/2fa.log' for real-time status."

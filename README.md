@@ -68,6 +68,7 @@ ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY=no
 
 ```bash
 docker compose up -d --build
+sudo bash ./scripts/install_2fa_bot_watcher.sh
 ```
 
 > If you use this repository's GitHub Actions workflow, pushing to `main` also triggers automatic deployment to GCE.
@@ -135,6 +136,12 @@ docker exec ib-gateway tail -f /home/ibgateway/2fa.log
 docker exec ib-gateway pgrep -f 2fa_bot.py
 ```
 
+### Check Watcher Timer
+
+```bash
+systemctl status ibkr-2fa-bot.timer --no-pager
+```
+
 ### Check API Port in Container
 
 ```bash
@@ -164,6 +171,7 @@ docker exec ib-gateway ss -lntp | grep 4001
 
 - Check logs: `docker exec ib-gateway tail -f /home/ibgateway/2fa.log`
 - Verify `TOTP_SECRET` is valid Base32 secret.
+- Confirm watcher timer is active: `systemctl status ibkr-2fa-bot.timer --no-pager`
 
 ---
 
