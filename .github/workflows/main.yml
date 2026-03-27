@@ -49,6 +49,11 @@ jobs:
           SSH_KEY_FILE="$RUNNER_TEMP/ssh/google_compute_engine"
           printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$SSH_KEY_FILE"
           chmod 600 "$SSH_KEY_FILE"
+          if ! ssh-keygen -y -f "$SSH_KEY_FILE" > "$SSH_KEY_FILE.pub"; then
+            echo "SSH_PRIVATE_KEY is invalid or passphrase-protected; provide an unencrypted private key that matches the VM authorized_keys entry." >&2
+            exit 1
+          fi
+          chmod 644 "$SSH_KEY_FILE.pub"
           echo "SSH_KEY_FILE=$SSH_KEY_FILE" >> "$GITHUB_ENV"
 
           ENV_FILE="$RUNNER_TEMP/ibkr-gateway.env"
