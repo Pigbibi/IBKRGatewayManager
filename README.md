@@ -56,6 +56,8 @@ TWS_PASSWORD=your_ibkr_password
 TOTP_SECRET=your_base32_totp_secret
 VNC_SERVER_PASSWORD=your_vnc_password
 TRADING_MODE=live
+TWS_ACCEPT_INCOMING=accept
+READ_ONLY_API=no
 
 # Recommended: use the exact CIDR used by your Serverless VPC Access connector
 # Example: 10.8.0.0/28
@@ -119,6 +121,8 @@ When recreating your VM, use this order:
 | `TOTP_SECRET` | IBKR TOTP secret |
 | `VNC_SERVER_PASSWORD` | VNC password |
 | `TRADING_MODE` | `paper` or `live` |
+| `TWS_ACCEPT_INCOMING` | Optional. `accept`, `reject`, or `manual`. Recommended: `accept` for automated API clients. |
+| `READ_ONLY_API` | Optional. `yes` or `no`. Recommended: `no` if this service needs to place trades. |
 | `ACCEPT_API_FROM_IP` | Cloud Run Direct VPC egress or connector CIDR (example `10.8.0.0/26`) |
 | `ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY` | Set to `no` for Cloud Run private IP access |
 
@@ -168,6 +172,8 @@ docker exec ib-gateway sh -lc 'command -v ss >/dev/null && ss -lntp | grep -E "4
 
 - Confirm VM firewall rule exists for source connector CIDR -> TCP 4001 (`live`) or TCP 4002 (`paper`).
 - Confirm `ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY=no`. This is equivalent to disabling the IB Gateway GUI option that only accepts localhost API clients.
+- Confirm `TWS_ACCEPT_INCOMING=accept` so incoming API sessions are auto-accepted.
+- Confirm `READ_ONLY_API=no` if the strategy must place live or paper orders.
 - Confirm Docker published ports are `4001:4003` and `4002:4004`.
 - Confirm the application uses `4001` for `live` and `4002` for `paper`.
 - Confirm service and connector are in compatible region/network routing setup.
