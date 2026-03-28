@@ -163,8 +163,6 @@ When recreating your VM, use this order:
 | `IB_GATEWAY_TWS_ACCEPT_INCOMING` | Optional. Recommended `accept`. |
 | `IB_GATEWAY_READ_ONLY_API` | Optional. Recommended `no` if this service places trades. |
 
-Legacy names `GCE_INSTANCE_NAME`, `GCE_ZONE`, `TRADING_MODE`, `ACCEPT_API_FROM_IP`, `GCE_USER`, `DEPLOY_PATH`, `ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY`, `TWS_ACCEPT_INCOMING`, and `READ_ONLY_API` are still accepted as fallbacks, so you can migrate gradually instead of changing everything at once.
-
 For direct `docker compose` usage outside GitHub Actions, `ACCEPT_API_FROM_IP` must still be set explicitly in `.env`; there is no longer a silent default CIDR.
 
 These GitHub secrets are specific to this repository's deployment flow. They are not intended to be global secrets shared by every quant repository.

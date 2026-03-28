@@ -20,3 +20,24 @@ if grep -Fq 'DEPLOY_SCRIPT=' "$workflow_file"; then
   echo "Unexpected DEPLOY_SCRIPT temp upload flow still present" >&2
   exit 1
 fi
+
+for legacy_pattern in \
+  'vars.GCE_USER' \
+  'secrets.GCE_USER' \
+  'secrets.GCE_INSTANCE_NAME' \
+  'secrets.GCE_ZONE' \
+  'secrets.TRADING_MODE' \
+  'vars.DEPLOY_PATH' \
+  'secrets.DEPLOY_PATH' \
+  'vars.CLOUD_RUN_EGRESS_CIDR' \
+  'secrets.ACCEPT_API_FROM_IP' \
+  'vars.ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY' \
+  'secrets.ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY' \
+  'vars.TWS_ACCEPT_INCOMING' \
+  'vars.READ_ONLY_API'
+do
+  if grep -Fq "$legacy_pattern" "$workflow_file"; then
+    echo "Unexpected legacy config reference remains: $legacy_pattern" >&2
+    exit 1
+  fi
+done
