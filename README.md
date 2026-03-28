@@ -68,6 +68,29 @@ ACCEPT_API_FROM_IP=10.8.0.0/26
 ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY=no
 ```
 
+### Shared GitHub Config (Recommended)
+
+If `IBKRQuant` and `IBKRGatewayManager` share one GitHub-managed config, keep these non-secret values in GitHub Variables:
+
+```bash
+IB_GATEWAY_INSTANCE_NAME=interactive-brokers-quant-instance
+IB_GATEWAY_ZONE=us-central1-c
+IB_GATEWAY_MODE=paper
+CLOUD_RUN_EGRESS_CIDR=10.128.0.0/20
+GCE_USER=zwlddx0815
+DEPLOY_PATH=/home/zwlddx0815/ib-docker
+ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY=no
+TWS_ACCEPT_INCOMING=accept
+READ_ONLY_API=no
+```
+
+The workflow maps these shared values to the gateway container's `.env`:
+
+- `IB_GATEWAY_MODE` -> `TRADING_MODE`
+- `CLOUD_RUN_EGRESS_CIDR` -> `ACCEPT_API_FROM_IP`
+- `IB_GATEWAY_INSTANCE_NAME` -> `GCE_INSTANCE_NAME`
+- `IB_GATEWAY_ZONE` -> `GCE_ZONE`
+
 ### 3. Start IBKR Gateway
 
 ```bash
@@ -107,25 +130,34 @@ When recreating your VM, use this order:
 4. **Set GitHub Secrets** so Action can redeploy automatically.
 5. **Push to `main`** to trigger deployment workflow.
 
-### Required GitHub Secrets for Auto Deploy
+### GitHub Config for Auto Deploy
+
+**GitHub Secrets**
 
 | Secret | Purpose |
 | :--- | :--- |
 | `GCP_SA_KEY` | GCP service account JSON key |
 | `SSH_PRIVATE_KEY` | SSH private key for VM login |
-| `GCE_USER` | VM SSH username (for example `zwlddx0815`) |
-| `GCE_INSTANCE_NAME` | VM instance name |
-| `GCE_ZONE` | VM zone |
-| `DEPLOY_PATH` | Repo path on VM (for example `/home/zwlddx0815/ib-docker`) |
 | `TWS_USERID` | IBKR username |
 | `TWS_PASSWORD` | IBKR password |
 | `TOTP_SECRET` | IBKR TOTP secret |
 | `VNC_SERVER_PASSWORD` | VNC password |
-| `TRADING_MODE` | `paper` or `live` |
-| `ACCEPT_API_FROM_IP` | Cloud Run Direct VPC egress or connector CIDR (example `10.8.0.0/26`) |
-| `ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY` | Set to `no` for Cloud Run private IP access |
 
-The workflow requires all secrets above. `TWS_ACCEPT_INCOMING` and `READ_ONLY_API` currently default to `accept` and `no` in `docker-compose.yml`, so they do not need separate GitHub secrets unless you later decide to make them configurable in the workflow too.
+**GitHub Variables (recommended shared config)**
+
+| Variable | Purpose |
+| :--- | :--- |
+| `GCE_USER` | VM SSH username (for example `zwlddx0815`) |
+| `DEPLOY_PATH` | Repo path on VM (for example `/home/zwlddx0815/ib-docker`) |
+| `IB_GATEWAY_INSTANCE_NAME` | VM instance name |
+| `IB_GATEWAY_ZONE` | VM zone |
+| `IB_GATEWAY_MODE` | `paper` or `live` |
+| `CLOUD_RUN_EGRESS_CIDR` | Cloud Run Direct VPC egress or connector CIDR (example `10.8.0.0/26`) |
+| `ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY` | Set to `no` for Cloud Run private IP access |
+| `TWS_ACCEPT_INCOMING` | Optional. Recommended `accept`. |
+| `READ_ONLY_API` | Optional. Recommended `no` if this service places trades. |
+
+Legacy secret names `GCE_INSTANCE_NAME`, `GCE_ZONE`, `TRADING_MODE`, `ACCEPT_API_FROM_IP`, and `GCE_USER` are still accepted as fallbacks, so you can migrate gradually instead of changing everything at once.
 
 ---
 

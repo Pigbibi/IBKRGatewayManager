@@ -12,10 +12,15 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      GCE_USER: ${{ secrets.GCE_USER }}
-      GCE_INSTANCE_NAME: ${{ secrets.GCE_INSTANCE_NAME }}
-      GCE_ZONE: ${{ secrets.GCE_ZONE }}
-      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      GCE_USER: ${{ vars.GCE_USER || secrets.GCE_USER }}
+      GCE_INSTANCE_NAME: ${{ vars.IB_GATEWAY_INSTANCE_NAME || secrets.GCE_INSTANCE_NAME }}
+      GCE_ZONE: ${{ vars.IB_GATEWAY_ZONE || secrets.GCE_ZONE }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH || secrets.DEPLOY_PATH }}
+      IB_GATEWAY_MODE: ${{ vars.IB_GATEWAY_MODE || secrets.TRADING_MODE }}
+      CLOUD_RUN_EGRESS_CIDR: ${{ vars.CLOUD_RUN_EGRESS_CIDR || secrets.ACCEPT_API_FROM_IP }}
+      ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY: ${{ vars.ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY || secrets.ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY }}
+      TWS_ACCEPT_INCOMING: ${{ vars.TWS_ACCEPT_INCOMING || 'accept' }}
+      READ_ONLY_API: ${{ vars.READ_ONLY_API || 'no' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -39,9 +44,6 @@ jobs:
           TWS_PASSWORD: ${{ secrets.TWS_PASSWORD }}
           TOTP_SECRET: ${{ secrets.TOTP_SECRET }}
           VNC_SERVER_PASSWORD: ${{ secrets.VNC_SERVER_PASSWORD }}
-          TRADING_MODE: ${{ secrets.TRADING_MODE }}
-          ACCEPT_API_FROM_IP: ${{ secrets.ACCEPT_API_FROM_IP }}
-          ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY: ${{ secrets.ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY }}
         run: |
           set -euo pipefail
 
@@ -55,8 +57,8 @@ jobs:
             TWS_PASSWORD
             TOTP_SECRET
             VNC_SERVER_PASSWORD
-            TRADING_MODE
-            ACCEPT_API_FROM_IP
+            IB_GATEWAY_MODE
+            CLOUD_RUN_EGRESS_CIDR
             ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY
           )
 
@@ -84,22 +86,24 @@ jobs:
           import os
 
           env_file = os.environ["ENV_FILE"]
-          keys = [
-              "TWS_USERID",
-              "TWS_PASSWORD",
-              "TOTP_SECRET",
-              "VNC_SERVER_PASSWORD",
-              "TRADING_MODE",
-              "ACCEPT_API_FROM_IP",
-              "ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY",
-          ]
+          values = {
+              "TWS_USERID": os.environ["TWS_USERID"],
+              "TWS_PASSWORD": os.environ["TWS_PASSWORD"],
+              "TOTP_SECRET": os.environ["TOTP_SECRET"],
+              "VNC_SERVER_PASSWORD": os.environ["VNC_SERVER_PASSWORD"],
+              "TRADING_MODE": os.environ["IB_GATEWAY_MODE"],
+              "ACCEPT_API_FROM_IP": os.environ["CLOUD_RUN_EGRESS_CIDR"],
+              "ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY": os.environ["ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY"],
+              "TWS_ACCEPT_INCOMING": os.environ["TWS_ACCEPT_INCOMING"],
+              "READ_ONLY_API": os.environ["READ_ONLY_API"],
+          }
 
           def quote(value: str) -> str:
               return "'" + value.replace("'", "'\"'\"'") + "'"
 
           with open(env_file, "w", encoding="utf-8") as fh:
-              for key in keys:
-                  fh.write(f"{key}={quote(os.environ[key])}\n")
+              for key, value in values.items():
+                  fh.write(f"{key}={quote(value)}\n")
           PY
           echo "ENV_FILE=$ENV_FILE" >> "$GITHUB_ENV"
 
