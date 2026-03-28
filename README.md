@@ -20,13 +20,13 @@ Cloud Run service
    │
    ├─(egress: all-traffic/private-ranges-only)
    ▼
-Serverless VPC Access Connector
+Direct VPC egress or Serverless VPC Access connector
    ▼
-VPC (same region/network)
+VPC (same region/network path)
    ▼
-GCE VM (private IP)
+GCE VM (private IP, host port 4001/4002)
    ▼
-Docker: ib-gateway container (port 4001)
+Docker: ib-gateway container (relay on 4003/4004)
 ```
 
 For this architecture to work:
@@ -59,9 +59,10 @@ TRADING_MODE=live
 TWS_ACCEPT_INCOMING=accept
 READ_ONLY_API=no
 
-# Recommended: use the exact CIDR used by your Serverless VPC Access connector
-# Example: 10.8.0.0/28
-ACCEPT_API_FROM_IP=10.8.0.0/28
+# Recommended: use the exact CIDR used by your Cloud Run egress path
+# Direct VPC egress: use the subnet CIDR
+# VPC connector: use the connector CIDR
+ACCEPT_API_FROM_IP=10.8.0.0/26
 
 # Must be 'no' for Cloud Run private IP access
 ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY=no
@@ -89,9 +90,9 @@ Expected: host is listening on `0.0.0.0:4001` and/or `0.0.0.0:4002` (or VM priva
 
 ## Cloud Run Connectivity Checklist
 
-1. Cloud Run service uses **Serverless VPC Access connector**.
+1. Cloud Run service uses **Direct VPC egress** or **Serverless VPC Access connector**.
 2. Cloud Run egress is configured correctly (`all-traffic` or `private-ranges-only`, depending on your route design).
-3. Firewall rule allows connector CIDR (or Cloud Run egress range) to VM TCP `4001` for `live` or `4002` for `paper`.
+3. Firewall rule allows the Direct VPC subnet CIDR or connector CIDR to VM TCP `4001` for `live` or `4002` for `paper`.
 4. Application uses `GCE_PRIVATE_IP:4001` for `live` or `GCE_PRIVATE_IP:4002` for `paper`.
 
 ---
@@ -121,12 +122,10 @@ When recreating your VM, use this order:
 | `TOTP_SECRET` | IBKR TOTP secret |
 | `VNC_SERVER_PASSWORD` | VNC password |
 | `TRADING_MODE` | `paper` or `live` |
-| `TWS_ACCEPT_INCOMING` | Optional. `accept`, `reject`, or `manual`. Recommended: `accept` for automated API clients. |
-| `READ_ONLY_API` | Optional. `yes` or `no`. Recommended: `no` if this service needs to place trades. |
 | `ACCEPT_API_FROM_IP` | Cloud Run Direct VPC egress or connector CIDR (example `10.8.0.0/26`) |
 | `ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY` | Set to `no` for Cloud Run private IP access |
 
-All secrets above are required. The workflow no longer falls back to built-in defaults, so a missing secret will fail fast instead of deploying to the wrong VM, zone, or path.
+The workflow requires all secrets above. `TWS_ACCEPT_INCOMING` and `READ_ONLY_API` currently default to `accept` and `no` in `docker-compose.yml`, so they do not need separate GitHub secrets unless you later decide to make them configurable in the workflow too.
 
 ---
 
