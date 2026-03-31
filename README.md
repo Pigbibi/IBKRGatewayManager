@@ -95,7 +95,7 @@ The workflow maps these shared values to the gateway container's `.env`:
 
 `ACCEPT_API_FROM_IP` is intentionally treated as required now. For manual `docker compose` usage, if you forget to set it, Compose will fail fast instead of starting a gateway that Cloud Run can never reach.
 
-This shared GitHub config is scoped to the **IBKR deployment pair only** (`InteractiveBrokersPlatform` + `IBKRGatewayManager`). It should not be treated as a platform-wide secret set for unrelated quant projects. Secrets such as `GCP_SA_KEY`, `SSH_PRIVATE_KEY`, `TWS_USERID`, and `TWS_PASSWORD` remain repository-specific deployment credentials for this gateway module.
+This shared GitHub config is scoped to the **IBKR deployment pair only** (`InteractiveBrokersPlatform` + `IBKRGatewayManager`). It should not be treated as a platform-wide secret set for unrelated quant projects. The gateway workflow now authenticates to GCP with **GitHub OIDC + Workload Identity Federation** instead of a long-lived `GCP_SA_KEY`.
 
 ### 3. Start IBKR Gateway
 
@@ -138,16 +138,31 @@ When recreating your VM, use this order:
 
 ### GitHub Config for Auto Deploy
 
+**GitHub Authentication**
+
+This workflow now uses **GitHub OIDC + Workload Identity Federation** for Google Cloud auth. You do **not** need `GCP_SA_KEY` anymore.
+
 **GitHub Secrets**
 
 | Secret | Purpose |
 | :--- | :--- |
-| `GCP_SA_KEY` | GCP service account JSON key |
 | `SSH_PRIVATE_KEY` | SSH private key for VM login |
 | `TWS_USERID` | IBKR username |
 | `TWS_PASSWORD` | IBKR password |
 | `TOTP_SECRET` | IBKR TOTP secret |
 | `VNC_SERVER_PASSWORD` | VNC password |
+
+**Optional GitHub Variables for Secret Manager**
+
+If you want to stop storing the gateway credentials in GitHub Secrets, set these variables to Secret Manager secret names in project `interactivebrokersquant`. When a `*_SECRET_NAME` variable is present, the workflow reads the latest secret version from Secret Manager; otherwise it falls back to the matching GitHub secret.
+
+| Variable | Reads secret value for |
+| :--- | :--- |
+| `IB_GATEWAY_SSH_PRIVATE_KEY_SECRET_NAME` | `SSH_PRIVATE_KEY` |
+| `IB_GATEWAY_TWS_USERID_SECRET_NAME` | `TWS_USERID` |
+| `IB_GATEWAY_TWS_PASSWORD_SECRET_NAME` | `TWS_PASSWORD` |
+| `IB_GATEWAY_TOTP_SECRET_SECRET_NAME` | `TOTP_SECRET` |
+| `IB_GATEWAY_VNC_SERVER_PASSWORD_SECRET_NAME` | `VNC_SERVER_PASSWORD` |
 
 **GitHub Variables (recommended shared config)**
 

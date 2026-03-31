@@ -4,15 +4,29 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
 workflow_file="$repo_dir/.github/workflows/main.yml"
 
-grep -Fq "vars.IB_GATEWAY_INSTANCE_NAME" "$workflow_file"
-grep -Fq "vars.IB_GATEWAY_ZONE" "$workflow_file"
-grep -Fq "vars.IB_GATEWAY_MODE" "$workflow_file"
-grep -Fq "vars.IB_GATEWAY_GCE_USER" "$workflow_file"
-grep -Fq "vars.IB_GATEWAY_DEPLOY_PATH" "$workflow_file"
-grep -Fq "vars.IB_GATEWAY_CLOUD_RUN_EGRESS_CIDR" "$workflow_file"
-grep -Fq "vars.IB_GATEWAY_ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY" "$workflow_file"
-grep -Fq "vars.IB_GATEWAY_TWS_ACCEPT_INCOMING" "$workflow_file"
-grep -Fq "vars.IB_GATEWAY_READ_ONLY_API" "$workflow_file"
+grep -Fq 'GCP_PROJECT_ID: interactivebrokersquant' "$workflow_file"
+grep -Fq 'providers/github-ibkr-gateway-main' "$workflow_file"
+grep -Fq 'ibkr-gateway-deploy@interactivebrokersquant.iam.gserviceaccount.com' "$workflow_file"
+grep -Fq 'id-token: write' "$workflow_file"
+grep -Fq 'workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}' "$workflow_file"
+grep -Fq 'service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}' "$workflow_file"
+grep -Fq 'vars.IB_GATEWAY_INSTANCE_NAME' "$workflow_file"
+grep -Fq 'vars.IB_GATEWAY_ZONE' "$workflow_file"
+grep -Fq 'vars.IB_GATEWAY_MODE' "$workflow_file"
+grep -Fq 'vars.IB_GATEWAY_GCE_USER' "$workflow_file"
+grep -Fq 'vars.IB_GATEWAY_DEPLOY_PATH' "$workflow_file"
+grep -Fq 'vars.IB_GATEWAY_CLOUD_RUN_EGRESS_CIDR' "$workflow_file"
+grep -Fq 'vars.IB_GATEWAY_ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY' "$workflow_file"
+grep -Fq 'vars.IB_GATEWAY_TWS_ACCEPT_INCOMING' "$workflow_file"
+grep -Fq 'vars.IB_GATEWAY_READ_ONLY_API' "$workflow_file"
+grep -Fq 'vars.IB_GATEWAY_SSH_PRIVATE_KEY_SECRET_NAME' "$workflow_file"
+grep -Fq 'vars.IB_GATEWAY_TWS_USERID_SECRET_NAME' "$workflow_file"
+grep -Fq 'vars.IB_GATEWAY_TWS_PASSWORD_SECRET_NAME' "$workflow_file"
+grep -Fq 'vars.IB_GATEWAY_TOTP_SECRET_SECRET_NAME' "$workflow_file"
+grep -Fq 'vars.IB_GATEWAY_VNC_SERVER_PASSWORD_SECRET_NAME' "$workflow_file"
+grep -Fq 'gcloud secrets versions access latest' "$workflow_file"
+grep -Fq 'resolve_secret()' "$workflow_file"
+grep -Fq 'require_secret_source()' "$workflow_file"
 grep -Fq '"TRADING_MODE": os.environ["IB_GATEWAY_MODE"]' "$workflow_file"
 grep -Fq '"ACCEPT_API_FROM_IP": os.environ["CLOUD_RUN_EGRESS_CIDR"]' "$workflow_file"
 grep -Fq 'REMOTE_DEPLOY_COMMAND=$(cat <<EOF' "$workflow_file"
@@ -22,6 +36,8 @@ if grep -Fq 'DEPLOY_SCRIPT=' "$workflow_file"; then
 fi
 
 for legacy_pattern in \
+  'credentials_json: ${{ secrets.GCP_SA_KEY }}' \
+  'secrets.GCP_SA_KEY' \
   'vars.GCE_USER' \
   'secrets.GCE_USER' \
   'secrets.GCE_INSTANCE_NAME' \
