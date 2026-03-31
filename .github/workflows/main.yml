@@ -3,6 +3,12 @@ name: Deploy and Keep Active
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+      - '2fa_bot.py'
+      - 'requirements.txt'
+      - 'scripts/**'
   # Runs automatically every day at 0:00 UTC (8:00 AM Beijing Time)
   schedule:
     - cron: '0 0 * * *'
@@ -16,10 +22,12 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       id-token: write
     env:
+      DEPLOY_EVENT_NAME: ${{ github.event_name }}
       GCE_USER: ${{ vars.IB_GATEWAY_GCE_USER }}
       GCE_INSTANCE_NAME: ${{ vars.IB_GATEWAY_INSTANCE_NAME }}
       GCE_ZONE: ${{ vars.IB_GATEWAY_ZONE }}
@@ -182,6 +190,10 @@ jobs:
         run: |
           set -euo pipefail
 
+          log_step() {
+            echo "[$(date -u +%FT%TZ)] $*"
+          }
+
           REMOTE_TARGET="${GCE_USER}@${GCE_INSTANCE_NAME}"
           REMOTE_COMMON_FLAGS=(
             --project "${GCP_PROJECT_ID}"
@@ -204,6 +216,7 @@ jobs:
           )
           REMOTE_SYNC_COMMAND=$(cat <<EOF
           set -euo pipefail
+          echo "[\$(date -u +%FT%TZ)] Syncing repository contents"
           sudo mkdir -p '${DEPLOY_PATH}'
           sudo chown -R '${GCE_USER}':'${GCE_USER}' '${DEPLOY_PATH}'
           if [ -d '${DEPLOY_PATH}/.git' ]; then
@@ -217,12 +230,29 @@ jobs:
           EOF
           )
 
+          log_step "Syncing repository to ${DEPLOY_PATH}"
           gcloud compute ssh "${REMOTE_TARGET}" "${SSH_FLAGS[@]}" --command "${REMOTE_SYNC_COMMAND}"
+          log_step "Uploading runtime env file"
           gcloud compute scp "${ENV_FILE}" "${REMOTE_TARGET}:${DEPLOY_PATH}/.env" "${SCP_FLAGS[@]}"
 
-          REMOTE_DEPLOY_COMMAND=$(cat <<EOF
+          if [ "${DEPLOY_EVENT_NAME}" = "schedule" ]; then
+            REMOTE_DEPLOY_COMMAND=$(cat <<EOF
           set -euo pipefail
           cd '${DEPLOY_PATH}'
+          echo "[\$(date -u +%FT%TZ)] Scheduled keepalive mode: skip docker build"
+          sudo docker compose up -d --no-build
+          sudo docker compose ps
+          sudo bash ./scripts/install_2fa_bot_watcher.sh
+          sleep 5
+          sudo systemctl status ibkr-2fa-bot.timer --no-pager
+          echo "[\$(date -u +%FT%TZ)] Keepalive complete."
+          EOF
+            )
+          else
+            REMOTE_DEPLOY_COMMAND=$(cat <<EOF
+          set -euo pipefail
+          cd '${DEPLOY_PATH}'
+          echo "[\$(date -u +%FT%TZ)] Full deploy mode: rebuilding container"
           sudo docker compose build
           sudo docker compose down
           sudo docker compose up -d
@@ -237,6 +267,8 @@ jobs:
           echo "Deployment complete. Bot is monitoring the login window."
           echo "Run 'docker exec ib-gateway tail -f /home/ibgateway/2fa.log' for real-time status."
           EOF
-          )
+            )
+          fi
 
+          log_step "Running remote deploy commands for event ${DEPLOY_EVENT_NAME}"
           gcloud compute ssh "${REMOTE_TARGET}" "${SSH_FLAGS[@]}" --command "${REMOTE_DEPLOY_COMMAND}"

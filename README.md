@@ -104,7 +104,7 @@ docker compose up -d --build
 sudo bash ./scripts/install_2fa_bot_watcher.sh
 ```
 
-> If you use this repository's GitHub Actions workflow, pushing to `main` also triggers automatic deployment to GCE.
+> If you use this repository's GitHub Actions workflow, pushing deploy-related changes to `main` triggers a full deployment to GCE. The daily scheduled run only does a lightweight keepalive start and watcher check; it does not rebuild the Docker image.
 
 ### 4. Verify on GCE VM
 
@@ -134,7 +134,7 @@ When recreating your VM, use this order:
 2. **Install Docker + Docker Compose plugin** on the VM.
 3. **Clone this repo** to your target path (for example `/home/<user>/ib-docker`).
 4. **Set GitHub Secrets** so Action can redeploy automatically.
-5. **Push to `main`** to trigger deployment workflow.
+5. **Push deploy-related changes to `main`** to trigger a full deployment workflow.
 
 ### GitHub Config for Auto Deploy
 
