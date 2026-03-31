@@ -8,9 +8,17 @@ on:
     - cron: '0 0 * * *'
   workflow_dispatch:
 
+env:
+  GCP_PROJECT_ID: interactivebrokersquant
+  GCP_WORKLOAD_IDENTITY_PROVIDER: projects/303168642265/locations/global/workloadIdentityPools/github-actions/providers/github-ibkr-gateway-main
+  GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: ibkr-gateway-deploy@interactivebrokersquant.iam.gserviceaccount.com
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     env:
       GCE_USER: ${{ vars.IB_GATEWAY_GCE_USER }}
       GCE_INSTANCE_NAME: ${{ vars.IB_GATEWAY_INSTANCE_NAME }}
@@ -21,23 +29,16 @@ jobs:
       ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY: ${{ vars.IB_GATEWAY_ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY }}
       TWS_ACCEPT_INCOMING: ${{ vars.IB_GATEWAY_TWS_ACCEPT_INCOMING }}
       READ_ONLY_API: ${{ vars.IB_GATEWAY_READ_ONLY_API }}
+      SSH_PRIVATE_KEY_SECRET_NAME: ${{ vars.IB_GATEWAY_SSH_PRIVATE_KEY_SECRET_NAME }}
+      TWS_USERID_SECRET_NAME: ${{ vars.IB_GATEWAY_TWS_USERID_SECRET_NAME }}
+      TWS_PASSWORD_SECRET_NAME: ${{ vars.IB_GATEWAY_TWS_PASSWORD_SECRET_NAME }}
+      TOTP_SECRET_SECRET_NAME: ${{ vars.IB_GATEWAY_TOTP_SECRET_SECRET_NAME }}
+      VNC_SERVER_PASSWORD_SECRET_NAME: ${{ vars.IB_GATEWAY_VNC_SERVER_PASSWORD_SECRET_NAME }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Authenticate to Google Cloud
-        id: auth
-        uses: google-github-actions/auth@v3
-        with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      - name: Set up gcloud
-        uses: google-github-actions/setup-gcloud@v3
-        with:
-          project_id: ${{ steps.auth.outputs.project_id }}
-          version: '>= 416.0.0'
-
-      - name: Prepare SSH key and deployment files
+      - name: Check whether deployment config is complete
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           TWS_USERID: ${{ secrets.TWS_USERID }}
@@ -52,11 +53,6 @@ jobs:
             GCE_INSTANCE_NAME
             GCE_ZONE
             DEPLOY_PATH
-            SSH_PRIVATE_KEY
-            TWS_USERID
-            TWS_PASSWORD
-            TOTP_SECRET
-            VNC_SERVER_PASSWORD
             IB_GATEWAY_MODE
             CLOUD_RUN_EGRESS_CIDR
             ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY
@@ -64,17 +60,88 @@ jobs:
 
           for var_name in "${required_vars[@]}"; do
             if [ -z "${!var_name:-}" ]; then
-              echo "${var_name} is required. Set it in GitHub Actions secrets before running this workflow." >&2
+              echo "${var_name} is required. Set it in GitHub Actions variables before running this workflow." >&2
               exit 1
             fi
           done
 
+          require_secret_source() {
+            local secret_name_var="$1"
+            local fallback_var="$2"
+            local label="$3"
+
+            if [ -n "${!secret_name_var:-}" ] || [ -n "${!fallback_var:-}" ]; then
+              return 0
+            fi
+
+            echo "${label} is required. Set ${secret_name_var} as a GitHub variable pointing to Secret Manager, or set ${fallback_var} as a GitHub Actions secret." >&2
+            exit 1
+          }
+
+          require_secret_source SSH_PRIVATE_KEY_SECRET_NAME SSH_PRIVATE_KEY SSH_PRIVATE_KEY
+          require_secret_source TWS_USERID_SECRET_NAME TWS_USERID TWS_USERID
+          require_secret_source TWS_PASSWORD_SECRET_NAME TWS_PASSWORD TWS_PASSWORD
+          require_secret_source TOTP_SECRET_SECRET_NAME TOTP_SECRET TOTP_SECRET
+          require_secret_source VNC_SERVER_PASSWORD_SECRET_NAME VNC_SERVER_PASSWORD VNC_SERVER_PASSWORD
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          version: '>= 416.0.0'
+
+      - name: Prepare SSH key and deployment files
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          TWS_USERID: ${{ secrets.TWS_USERID }}
+          TWS_PASSWORD: ${{ secrets.TWS_PASSWORD }}
+          TOTP_SECRET: ${{ secrets.TOTP_SECRET }}
+          VNC_SERVER_PASSWORD: ${{ secrets.VNC_SERVER_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          resolve_secret() {
+            local secret_name="$1"
+            local fallback_value="$2"
+
+            if [ -n "${secret_name:-}" ]; then
+              gcloud secrets versions access latest --project "${GCP_PROJECT_ID}" --secret "${secret_name}"
+            else
+              printf '%s' "${fallback_value}"
+            fi
+          }
+
+          ssh_private_key="$(resolve_secret "${SSH_PRIVATE_KEY_SECRET_NAME:-}" "${SSH_PRIVATE_KEY:-}")"
+          tws_userid="$(resolve_secret "${TWS_USERID_SECRET_NAME:-}" "${TWS_USERID:-}")"
+          tws_password="$(resolve_secret "${TWS_PASSWORD_SECRET_NAME:-}" "${TWS_PASSWORD:-}")"
+          totp_secret="$(resolve_secret "${TOTP_SECRET_SECRET_NAME:-}" "${TOTP_SECRET:-}")"
+          vnc_server_password="$(resolve_secret "${VNC_SERVER_PASSWORD_SECRET_NAME:-}" "${VNC_SERVER_PASSWORD:-}")"
+
+          for required_value in ssh_private_key tws_userid tws_password totp_secret vnc_server_password; do
+            if [ -z "${!required_value:-}" ]; then
+              echo "Resolved ${required_value} is empty." >&2
+              exit 1
+            fi
+          done
+
+          echo "::add-mask::${tws_userid}"
+          echo "::add-mask::${tws_password}"
+          echo "::add-mask::${totp_secret}"
+          echo "::add-mask::${vnc_server_password}"
+
           install -d -m 700 "$RUNNER_TEMP/ssh"
           SSH_KEY_FILE="$RUNNER_TEMP/ssh/google_compute_engine"
-          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$SSH_KEY_FILE"
+          printf '%s\n' "$ssh_private_key" | tr -d '\r' > "$SSH_KEY_FILE"
           chmod 600 "$SSH_KEY_FILE"
           if ! ssh-keygen -y -f "$SSH_KEY_FILE" > "$SSH_KEY_FILE.pub"; then
-            echo "SSH_PRIVATE_KEY is invalid or passphrase-protected; provide an unencrypted private key that matches the VM authorized_keys entry." >&2
+            echo "Resolved SSH private key is invalid or passphrase-protected; provide an unencrypted private key that matches the VM authorized_keys entry." >&2
             exit 1
           fi
           chmod 644 "$SSH_KEY_FILE.pub"
@@ -82,15 +149,19 @@ jobs:
 
           ENV_FILE="$RUNNER_TEMP/ibkr-gateway.env"
           export ENV_FILE
+          export RESOLVED_TWS_USERID="$tws_userid"
+          export RESOLVED_TWS_PASSWORD="$tws_password"
+          export RESOLVED_TOTP_SECRET="$totp_secret"
+          export RESOLVED_VNC_SERVER_PASSWORD="$vnc_server_password"
           python3 - <<'PY'
           import os
 
           env_file = os.environ["ENV_FILE"]
           values = {
-              "TWS_USERID": os.environ["TWS_USERID"],
-              "TWS_PASSWORD": os.environ["TWS_PASSWORD"],
-              "TOTP_SECRET": os.environ["TOTP_SECRET"],
-              "VNC_SERVER_PASSWORD": os.environ["VNC_SERVER_PASSWORD"],
+              "TWS_USERID": os.environ["RESOLVED_TWS_USERID"],
+              "TWS_PASSWORD": os.environ["RESOLVED_TWS_PASSWORD"],
+              "TOTP_SECRET": os.environ["RESOLVED_TOTP_SECRET"],
+              "VNC_SERVER_PASSWORD": os.environ["RESOLVED_VNC_SERVER_PASSWORD"],
               "TRADING_MODE": os.environ["IB_GATEWAY_MODE"],
               "ACCEPT_API_FROM_IP": os.environ["CLOUD_RUN_EGRESS_CIDR"],
               "ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY": os.environ["ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY"],
@@ -113,7 +184,7 @@ jobs:
 
           REMOTE_TARGET="${GCE_USER}@${GCE_INSTANCE_NAME}"
           SSH_COMMON_FLAGS=(
-            --project "${{ steps.auth.outputs.project_id }}"
+            --project "${GCP_PROJECT_ID}"
             --zone "${GCE_ZONE}"
             --quiet
             --tunnel-through-iap
@@ -137,12 +208,8 @@ jobs:
           EOF
           )
 
-          gcloud compute ssh "${REMOTE_TARGET}" \
-            "${SSH_COMMON_FLAGS[@]}" \
-            --command "${REMOTE_SYNC_COMMAND}"
-
-          gcloud compute scp "${ENV_FILE}" "${REMOTE_TARGET}:${DEPLOY_PATH}/.env" \
-            "${SSH_COMMON_FLAGS[@]}"
+          gcloud compute ssh "${REMOTE_TARGET}" "${SSH_COMMON_FLAGS[@]}" --command "${REMOTE_SYNC_COMMAND}"
+          gcloud compute scp "${ENV_FILE}" "${REMOTE_TARGET}:${DEPLOY_PATH}/.env" "${SSH_COMMON_FLAGS[@]}"
 
           REMOTE_DEPLOY_COMMAND=$(cat <<EOF
           set -euo pipefail
@@ -163,6 +230,4 @@ jobs:
           EOF
           )
 
-          gcloud compute ssh "${REMOTE_TARGET}" \
-            "${SSH_COMMON_FLAGS[@]}" \
-            --command "${REMOTE_DEPLOY_COMMAND}"
+          gcloud compute ssh "${REMOTE_TARGET}" "${SSH_COMMON_FLAGS[@]}" --command "${REMOTE_DEPLOY_COMMAND}"
