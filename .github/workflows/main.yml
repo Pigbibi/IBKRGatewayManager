@@ -146,7 +146,6 @@ jobs:
               exit 1
             fi
 
-            gcloud secrets describe "${secret_name}" --project "${GCP_PROJECT_ID}" >/dev/null
             printf '%s' "${secret_value}" | gcloud secrets versions add "${secret_name}" --project "${GCP_PROJECT_ID}" --data-file=- >/dev/null
           }
 
