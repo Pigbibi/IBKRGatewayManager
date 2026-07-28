@@ -6,6 +6,7 @@ gateway_mode="${1:-${IB_GATEWAY_MODE:-paper}}"
 ready_timeout_seconds="${IB_GATEWAY_READY_TIMEOUT_SECONDS:-240}"
 poll_interval_seconds="${IB_GATEWAY_READY_POLL_INTERVAL_SECONDS:-5}"
 handshake_timeout_seconds="${IB_GATEWAY_HANDSHAKE_TIMEOUT_SECONDS:-12}"
+order_access_timeout_seconds="${IB_GATEWAY_ORDER_ACCESS_TIMEOUT_SECONDS:-4}"
 ready_stability_seconds="${IB_GATEWAY_READY_STABILITY_SECONDS:-35}"
 configured_healthcheck_client_id="${IB_GATEWAY_HEALTHCHECK_CLIENT_ID:-}"
 
@@ -22,15 +23,42 @@ case "${gateway_mode}" in
     ;;
 esac
 
+sum_timeout_seconds() {
+  awk -v first="$1" -v second="$2" '
+    function is_nonnegative_number(value) {
+      return value ~ /^([0-9]+([.][0-9]*)?|[.][0-9]+)$/ && value + 0 >= 0
+    }
+
+    BEGIN {
+      if (!is_nonnegative_number(first) || !is_nonnegative_number(second)) {
+        exit 1
+      }
+      total = first + second
+      if (total <= 0) {
+        exit 1
+      }
+      printf "%.15g\n", total
+    }
+  '
+}
+
+if ! process_timeout_seconds="$(
+  sum_timeout_seconds "${handshake_timeout_seconds}" "${order_access_timeout_seconds}"
+)"; then
+  echo "IB Gateway handshake and order-access timeouts must be non-negative numbers with a positive total" >&2
+  exit 1
+fi
+
 deadline=$((SECONDS + ready_timeout_seconds))
 
 check_api_handshake() {
   local healthcheck_client_id="$1"
 
-  timeout "${handshake_timeout_seconds}" docker exec -i "${container_name}" \
+  timeout "${process_timeout_seconds}" docker exec -i "${container_name}" \
     env IB_GATEWAY_HEALTHCHECK_PORT="${gateway_port}" \
       IB_GATEWAY_HEALTHCHECK_CLIENT_ID="${healthcheck_client_id}" \
       IB_GATEWAY_HEALTHCHECK_TIMEOUT_SECONDS="${handshake_timeout_seconds}" \
+      IB_GATEWAY_ORDER_ACCESS_TIMEOUT_SECONDS="${order_access_timeout_seconds}" \
     python3 <<'PY'
 import os
 import socket
@@ -43,7 +71,18 @@ host = "127.0.0.1"
 port = int(os.environ["IB_GATEWAY_HEALTHCHECK_PORT"])
 client_id = int(os.environ["IB_GATEWAY_HEALTHCHECK_CLIENT_ID"])
 timeout_seconds = float(os.environ["IB_GATEWAY_HEALTHCHECK_TIMEOUT_SECONDS"])
+order_access_timeout_seconds = float(
+    os.environ["IB_GATEWAY_ORDER_ACCESS_TIMEOUT_SECONDS"]
+)
 deadline = time.monotonic() + timeout_seconds
+if client_id <= 0:
+    raise RuntimeError("IB API healthcheck client ID must be greater than zero")
+read_only_api = os.environ.get("READ_ONLY_API", "").strip().lower()
+if read_only_api not in {"yes", "no"}:
+    raise RuntimeError(
+        "READ_ONLY_API must be explicitly configured as yes or no for the healthcheck"
+    )
+require_order_access = read_only_api == "no"
 
 
 try:
@@ -54,6 +93,32 @@ except ImportError:
 
 if IB is not None:
     ib = IB()
+    read_only_errors = []
+
+    def is_read_only_error(message):
+        normalized = str(message).lower().replace("-", " ").replace("_", " ")
+        return "read only" in " ".join(normalized.split())
+
+    def capture_api_error(_request_id, error_code, error_message, _contract):
+        if is_read_only_error(error_message):
+            read_only_errors.append((error_code, str(error_message)))
+
+    def request_order_data(label, callback):
+        try:
+            callback()
+        except Exception as exc:
+            if read_only_errors or is_read_only_error(exc):
+                raise RuntimeError(
+                    "IB API writable healthcheck failed: Gateway is in Read-Only mode"
+                ) from exc
+            raise RuntimeError(
+                f"IB API writable healthcheck {label} failed: {type(exc).__name__}"
+            ) from exc
+        if read_only_errors:
+            raise RuntimeError(
+                "IB API writable healthcheck failed: Gateway is in Read-Only mode"
+            )
+
     try:
         try:
             ib.connect(
@@ -66,11 +131,31 @@ if IB is not None:
             accounts = ib.managedAccounts()
             if not accounts:
                 raise RuntimeError("IB API healthcheck did not receive managed accounts")
+            if require_order_access:
+                original_raise_request_errors = ib.RaiseRequestErrors
+                original_request_timeout = ib.RequestTimeout
+                ib.errorEvent += capture_api_error
+                try:
+                    # Read order state only; this never calls placeOrder or cancelOrder.
+                    ib.RaiseRequestErrors = True
+                    ib.RequestTimeout = order_access_timeout_seconds
+                    request_order_data("open orders request", ib.reqOpenOrders)
+                finally:
+                    ib.errorEvent -= capture_api_error
+                    ib.RaiseRequestErrors = original_raise_request_errors
+                    ib.RequestTimeout = original_request_timeout
+                print(
+                    "IB API writable healthcheck ready: "
+                    f"server_version={ib.client.serverVersion()} "
+                    f"client_id={client_id} "
+                    f"account_count={len(accounts)}"
+                )
             print(
                 "IB API ib_insync healthcheck ready: "
                 f"server_version={ib.client.serverVersion()} "
                 f"client_id={client_id} "
-                f"accounts={','.join(accounts)}"
+                f"writable={str(require_order_access).lower()} "
+                f"account_count={len(accounts)}"
             )
         except Exception as exc:
             print(
@@ -83,6 +168,13 @@ if IB is not None:
         if ib.isConnected():
             ib.disconnect()
     raise SystemExit(0)
+
+if require_order_access:
+    print(
+        "IB API writable healthcheck requires ib_insync; refusing raw handshake fallback",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
 
 
 def remaining_timeout() -> float:
