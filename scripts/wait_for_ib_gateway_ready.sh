@@ -23,11 +23,36 @@ case "${gateway_mode}" in
     ;;
 esac
 
+sum_timeout_seconds() {
+  awk -v first="$1" -v second="$2" '
+    function is_nonnegative_number(value) {
+      return value ~ /^([0-9]+([.][0-9]*)?|[.][0-9]+)$/ && value + 0 >= 0
+    }
+
+    BEGIN {
+      if (!is_nonnegative_number(first) || !is_nonnegative_number(second)) {
+        exit 1
+      }
+      total = first + second
+      if (total <= 0) {
+        exit 1
+      }
+      printf "%.15g\n", total
+    }
+  '
+}
+
+if ! process_timeout_seconds="$(
+  sum_timeout_seconds "${handshake_timeout_seconds}" "${order_access_timeout_seconds}"
+)"; then
+  echo "IB Gateway handshake and order-access timeouts must be non-negative numbers with a positive total" >&2
+  exit 1
+fi
+
 deadline=$((SECONDS + ready_timeout_seconds))
 
 check_api_handshake() {
   local healthcheck_client_id="$1"
-  local process_timeout_seconds=$((handshake_timeout_seconds + order_access_timeout_seconds))
 
   timeout "${process_timeout_seconds}" docker exec -i "${container_name}" \
     env IB_GATEWAY_HEALTHCHECK_PORT="${gateway_port}" \

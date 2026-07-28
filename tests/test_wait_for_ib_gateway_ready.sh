@@ -46,6 +46,19 @@ grep -Fq 'docker logs --tail 120 "${container_name}"' "$script_file"
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
 awk '
+  /^sum_timeout_seconds\(\) \{/ { capture = 1 }
+  capture { print }
+  capture && /^}/ { exit }
+' "$script_file" > "$tmp_dir/sum_timeout_seconds.sh"
+# shellcheck disable=SC1091
+source "$tmp_dir/sum_timeout_seconds.sh"
+test "$(sum_timeout_seconds 12 0.5)" = "12.5"
+if sum_timeout_seconds invalid 0.5 >/dev/null 2>&1; then
+  echo "Invalid Gateway timeout unexpectedly passed validation" >&2
+  exit 1
+fi
+
+awk '
   /^[[:space:]]*python3 <<'\''PY'\''$/ { capture = 1; next }
   capture && /^PY$/ { exit }
   capture { print }
