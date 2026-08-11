@@ -1,1 +1,4 @@
-* @Pigbibi
+# Gateway control and credential-handling code requires owner visibility.
+/2fa_bot.py @Pigbibi
+/container_overrides/ @Pigbibi
+/scripts/ @Pigbibi
