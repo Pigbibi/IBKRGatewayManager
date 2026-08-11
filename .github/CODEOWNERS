@@ -1,4 +1,8 @@
-# Gateway control and credential-handling code requires owner visibility.
+# Gateway control, deployment, and credential-handling changes require owner visibility.
+/.github/CODEOWNERS @Pigbibi
+/.github/workflows/ @Pigbibi
 /2fa_bot.py @Pigbibi
+/Dockerfile @Pigbibi
+/docker-compose.yml @Pigbibi
 /container_overrides/ @Pigbibi
 /scripts/ @Pigbibi
