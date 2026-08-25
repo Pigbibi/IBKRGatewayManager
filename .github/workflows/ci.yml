@@ -23,3 +23,13 @@ jobs:
           bash tests/test_wait_for_ib_gateway_ready.sh
           bash tests/test_workflow_shared_config.sh
           bash tests/test_docker_compose_ports.sh
+
+  docker-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build gateway image without runtime startup
+        run: docker build --pull --tag ibkr-gateway-manager:ci .
