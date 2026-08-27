@@ -1,4 +1,7 @@
-FROM gnzsnz/ib-gateway:10.50.1d
+# 10.50.1d authenticated but did not restore the API listener on the live
+# Gateway after the 2026-08-25 rollout. Keep the last verified runtime until
+# the upstream regression has an isolated Gateway validation.
+FROM gnzsnz/ib-gateway:10.48.1d
 
 USER root
 RUN apt-get update && \
