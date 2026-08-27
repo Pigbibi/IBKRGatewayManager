@@ -86,4 +86,8 @@ assert module.is_gateway_blocker_dialog("IBKR Gateway", 509, 131)
 assert module.is_gateway_blocker_dialog("Gateway", 510, 131)
 assert not module.is_gateway_blocker_dialog("IBKR Gateway", 700, 550)
 assert not module.is_gateway_blocker_dialog("Gateway", 790, 610)
+module.find_gateway_blocker_dialogs = lambda: []
+assert not module.gateway_ui_blocker_present()
+module.find_gateway_blocker_dialogs = lambda: [module.WindowCandidate("1", "Gateway", 510, 131)]
+assert module.gateway_ui_blocker_present()
 PY

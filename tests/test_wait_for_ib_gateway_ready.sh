@@ -3,6 +3,9 @@ set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
 script_file="$repo_dir/scripts/wait_for_ib_gateway_ready.sh"
+recovery_script="$repo_dir/scripts/recover_ib_gateway_ready.sh"
+daily_restart_script="$repo_dir/scripts/restart_ib_gateway_daily.sh"
+blocker_probe_script="$repo_dir/scripts/detect_gateway_ui_blocker.sh"
 
 test -f "$script_file"
 test -x "$script_file" || true
@@ -42,6 +45,11 @@ grep -Fq 'b"API\0" + struct.pack(">I", len(b"v157..176")) + b"v157..176"' "$scri
 grep -Fq 'has_next_valid_id and has_managed_accounts' "$script_file"
 grep -Fq 'IB API handshake readiness' "$script_file"
 grep -Fq 'docker logs --tail 120 "${container_name}"' "$script_file"
+test -x "$blocker_probe_script"
+grep -Fq -- '--check-gateway-ui-blocker' "$blocker_probe_script"
+grep -Fq 'gateway_ui_blocker_present()' "$recovery_script"
+grep -Fq 'GATEWAY_UI_BLOCKER: Gateway dialog requires account/login review' "$recovery_script"
+grep -Fq 'skipping scheduled restart' "$daily_restart_script"
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
