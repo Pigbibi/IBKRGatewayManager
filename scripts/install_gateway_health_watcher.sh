@@ -10,7 +10,14 @@ compose_service_name="${IB_GATEWAY_COMPOSE_SERVICE_NAME:-ib-gateway}"
 unit_suffix="${IB_GATEWAY_UNIT_SUFFIX:-}"
 gateway_mode="${1:-${IB_GATEWAY_MODE:-paper}}"
 compose_file="${COMPOSE_FILE:-docker-compose.yml}"
-health_interval_seconds="${IB_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS:-300}"
+healthcheck_tick_seconds="${IB_GATEWAY_HEALTHCHECK_TICK_SECONDS:-300}"
+health_interval_seconds="${IB_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS:-900}"
+execution_window_interval_seconds="${IB_GATEWAY_EXECUTION_WINDOW_INTERVAL_SECONDS:-300}"
+execution_window_times="${IB_GATEWAY_EXECUTION_WINDOW_TIMES:-09:45,15:45}"
+execution_window_minutes="${IB_GATEWAY_EXECUTION_WINDOW_MINUTES:-60}"
+execution_window_timezone="${IB_GATEWAY_EXECUTION_WINDOW_TIMEZONE:-America/New_York}"
+failure_threshold="${IB_GATEWAY_HEALTHCHECK_FAILURE_THRESHOLD:-2}"
+probe_timeout_seconds="${IB_GATEWAY_HEALTHCHECK_PROBE_TIMEOUT_SECONDS:-30}"
 daily_restart_calendar="${IB_GATEWAY_DAILY_RESTART_ON_CALENDAR:-*-*-* 10:30:00 UTC}"
 
 . "$script_dir/ibkr_gateway_units.sh"
@@ -22,12 +29,18 @@ else
   default_lock_file="/var/lock/ib_gateway_recovery.lock"
 fi
 recovery_lock_file="${IB_GATEWAY_RECOVERY_LOCK_FILE:-$default_lock_file}"
+if [ -n "$resolved_unit_suffix" ]; then
+  default_state_file="/var/lib/ib_gateway_healthcheck/${resolved_unit_suffix}.state"
+else
+  default_state_file="/var/lib/ib_gateway_healthcheck/default.state"
+fi
+state_file="${IB_GATEWAY_HEALTHCHECK_STATE_FILE:-$default_state_file}"
 
 install -d "$systemd_dir"
 
 cat >"$systemd_dir/$IBKR_GATEWAY_HEALTHCHECK_SERVICE" <<EOF
 [Unit]
-Description=Check and recover IBKR Gateway API readiness
+Description=Adaptively check and recover IBKR Gateway API readiness
 After=docker.service network-online.target
 Wants=docker.service network-online.target
 
@@ -40,16 +53,24 @@ Environment=IB_GATEWAY_MODE=$gateway_mode
 Environment=COMPOSE_FILE=$compose_file
 Environment=IB_GATEWAY_RECOVERY_LOCK_FILE=$recovery_lock_file
 Environment=IB_GATEWAY_RECOVERY_LOCK_WAIT_SECONDS=0
-ExecStart=/bin/bash -lc 'cd "$repo_dir" && exec ./scripts/recover_ib_gateway_ready.sh "$gateway_mode"'
+Environment=IB_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS=$health_interval_seconds
+Environment=IB_GATEWAY_EXECUTION_WINDOW_INTERVAL_SECONDS=$execution_window_interval_seconds
+Environment=IB_GATEWAY_EXECUTION_WINDOW_TIMES=$execution_window_times
+Environment=IB_GATEWAY_EXECUTION_WINDOW_MINUTES=$execution_window_minutes
+Environment=IB_GATEWAY_EXECUTION_WINDOW_TIMEZONE=$execution_window_timezone
+Environment=IB_GATEWAY_HEALTHCHECK_FAILURE_THRESHOLD=$failure_threshold
+Environment=IB_GATEWAY_HEALTHCHECK_PROBE_TIMEOUT_SECONDS=$probe_timeout_seconds
+Environment=IB_GATEWAY_HEALTHCHECK_STATE_FILE=$state_file
+ExecStart=/bin/bash -lc 'cd "$repo_dir" && exec ./scripts/monitor_ib_gateway_ready.sh "$gateway_mode"'
 EOF
 
 cat >"$systemd_dir/$IBKR_GATEWAY_HEALTHCHECK_TIMER" <<EOF
 [Unit]
-Description=Run IBKR Gateway API readiness recovery every $health_interval_seconds seconds
+Description=Wake the adaptive IBKR Gateway API readiness monitor every $healthcheck_tick_seconds seconds
 
 [Timer]
-OnActiveSec=$health_interval_seconds
-OnUnitActiveSec=$health_interval_seconds
+OnActiveSec=$healthcheck_tick_seconds
+OnUnitActiveSec=$healthcheck_tick_seconds
 Unit=$IBKR_GATEWAY_HEALTHCHECK_SERVICE
 
 [Install]

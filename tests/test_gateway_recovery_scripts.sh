@@ -6,17 +6,20 @@ recover_script="$repo_dir/scripts/recover_ib_gateway_ready.sh"
 swap_script="$repo_dir/scripts/ensure_host_swap.sh"
 daily_restart_script="$repo_dir/scripts/restart_ib_gateway_daily.sh"
 health_watcher_script="$repo_dir/scripts/install_gateway_health_watcher.sh"
+adaptive_monitor_script="$repo_dir/scripts/monitor_ib_gateway_ready.sh"
 unit_helper_script="$repo_dir/scripts/ibkr_gateway_units.sh"
 
 test -f "$recover_script"
 test -f "$swap_script"
 test -f "$daily_restart_script"
 test -f "$health_watcher_script"
+test -f "$adaptive_monitor_script"
 test -f "$unit_helper_script"
 test -x "$recover_script"
 test -x "$swap_script"
 test -x "$daily_restart_script"
 test -x "$health_watcher_script"
+test -x "$adaptive_monitor_script"
 test -x "$unit_helper_script"
 
 grep -Fq 'IB_GATEWAY_RECOVERY_INITIAL_WAIT_SECONDS:-240' "$recover_script"
@@ -64,7 +67,10 @@ grep -Fq '$IBKR_GATEWAY_HEALTHCHECK_SERVICE' "$health_watcher_script"
 grep -Fq '$IBKR_GATEWAY_HEALTHCHECK_TIMER' "$health_watcher_script"
 grep -Fq '$IBKR_GATEWAY_DAILY_RESTART_SERVICE' "$health_watcher_script"
 grep -Fq '$IBKR_GATEWAY_DAILY_RESTART_TIMER' "$health_watcher_script"
-grep -Fq 'IB_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS:-300' "$health_watcher_script"
+grep -Fq 'IB_GATEWAY_HEALTHCHECK_TICK_SECONDS:-300' "$health_watcher_script"
+grep -Fq 'IB_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS:-900' "$health_watcher_script"
+grep -Fq 'IB_GATEWAY_EXECUTION_WINDOW_INTERVAL_SECONDS:-300' "$health_watcher_script"
+grep -Fq 'IB_GATEWAY_HEALTHCHECK_FAILURE_THRESHOLD:-2' "$health_watcher_script"
 grep -Fq 'IB_GATEWAY_DAILY_RESTART_ON_CALENDAR:-*-*-* 10:30:00 UTC' "$health_watcher_script"
 grep -Fq 'compose_service_name="${IB_GATEWAY_COMPOSE_SERVICE_NAME:-ib-gateway}"' "$health_watcher_script"
 grep -Fq 'gateway_mode="${1:-${IB_GATEWAY_MODE:-paper}}"' "$health_watcher_script"
@@ -73,12 +79,52 @@ grep -Fq 'Environment=IB_GATEWAY_COMPOSE_SERVICE_NAME=$compose_service_name' "$h
 grep -Fq 'Environment=COMPOSE_FILE=$compose_file' "$health_watcher_script"
 grep -Fq 'Environment=IB_GATEWAY_RECOVERY_LOCK_FILE=$recovery_lock_file' "$health_watcher_script"
 grep -Fq 'Environment=IB_GATEWAY_RECOVERY_LOCK_WAIT_SECONDS=0' "$health_watcher_script"
-grep -Fq 'OnActiveSec=$health_interval_seconds' "$health_watcher_script"
+grep -Fq 'Environment=IB_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS=$health_interval_seconds' "$health_watcher_script"
+grep -Fq 'Environment=IB_GATEWAY_EXECUTION_WINDOW_TIMES=$execution_window_times' "$health_watcher_script"
+grep -Fq 'Environment=IB_GATEWAY_HEALTHCHECK_FAILURE_THRESHOLD=$failure_threshold' "$health_watcher_script"
+grep -Fq 'monitor_ib_gateway_ready.sh' "$health_watcher_script"
+grep -Fq 'OnActiveSec=$healthcheck_tick_seconds' "$health_watcher_script"
 grep -Fq 'Persistent=false' "$health_watcher_script"
 ! grep -Fq 'OnBootSec=5min' "$health_watcher_script"
 grep -Fq 'enable --now "$IBKR_GATEWAY_HEALTHCHECK_TIMER"' "$health_watcher_script"
 grep -Fq 'enable --now "$IBKR_GATEWAY_DAILY_RESTART_TIMER"' "$health_watcher_script"
 ! grep -Fq 'start ibkr-gateway-healthcheck.service' "$health_watcher_script"
+
+grep -Fq 'IB_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS:-900' "$adaptive_monitor_script"
+grep -Fq 'IB_GATEWAY_EXECUTION_WINDOW_INTERVAL_SECONDS:-300' "$adaptive_monitor_script"
+grep -Fq 'IB_GATEWAY_EXECUTION_WINDOW_TIMES:-09:45,15:45' "$adaptive_monitor_script"
+grep -Fq 'IB_GATEWAY_HEALTHCHECK_FAILURE_THRESHOLD:-2' "$adaptive_monitor_script"
+grep -Fq 'IB_GATEWAY_READY_STABILITY_SECONDS=0' "$adaptive_monitor_script"
+grep -Fq 'recovery is deferred until the threshold is reached' "$adaptive_monitor_script"
+
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_dir"' EXIT
+mkdir -p "$tmp_dir/bin" "$tmp_dir/systemd"
+cat >"$tmp_dir/bin/systemctl" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+chmod +x "$tmp_dir/bin/systemctl"
+
+SYSTEMD_DIR="$tmp_dir/systemd" \
+SYSTEMCTL_BIN="$tmp_dir/bin/systemctl" \
+IB_GATEWAY_HEALTHCHECK_TICK_SECONDS=300 \
+IB_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS=900 \
+IB_GATEWAY_EXECUTION_WINDOW_INTERVAL_SECONDS=300 \
+IB_GATEWAY_HEALTHCHECK_FAILURE_THRESHOLD=2 \
+  bash "$health_watcher_script" live
+
+generated_health_service="$tmp_dir/systemd/ibkr-gateway-healthcheck.service"
+generated_health_timer="$tmp_dir/systemd/ibkr-gateway-healthcheck.timer"
+test -f "$generated_health_service"
+test -f "$generated_health_timer"
+grep -Fq 'Environment=IB_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS=900' "$generated_health_service"
+grep -Fq 'Environment=IB_GATEWAY_EXECUTION_WINDOW_INTERVAL_SECONDS=300' "$generated_health_service"
+grep -Fq 'Environment=IB_GATEWAY_HEALTHCHECK_FAILURE_THRESHOLD=2' "$generated_health_service"
+grep -Fq 'ExecStart=/bin/bash -lc' "$generated_health_service"
+grep -Fq 'monitor_ib_gateway_ready.sh' "$generated_health_service"
+grep -Fq 'OnActiveSec=300' "$generated_health_timer"
+grep -Fq 'OnUnitActiveSec=300' "$generated_health_timer"
 
 grep -Fq 'resolve_ibkr_gateway_unit_suffix()' "$unit_helper_script"
 grep -Fq 'IBKR_2FA_BOT_SERVICE="ibkr-2fa-bot${unit_infix}.service"' "$unit_helper_script"
