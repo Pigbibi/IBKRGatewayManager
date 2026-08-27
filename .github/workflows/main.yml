@@ -187,7 +187,10 @@ jobs:
     needs: select-targets
     name: deploy (${{ matrix.target.name }})
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # A progressing IB Gateway login may legitimately consume the bounded
+    # readiness budget (up to 61 minutes).  Keep enough runner time for its
+    # cleanup trap to restore health watchers instead of cancelling mid-flow.
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       max-parallel: 1
