@@ -85,6 +85,12 @@ grep -Fq 'resolve_ibkr_gateway_unit_names "\${container_name}" "\${IB_GATEWAY_UN
 grep -Fq 'sudo systemctl stop "\${IBKR_GATEWAY_HEALTHCHECK_TIMER}" "\${IBKR_GATEWAY_HEALTHCHECK_SERVICE}" 2>/dev/null || true' "$workflow_file"
 grep -Fq 'bash ./scripts/install_gateway_health_watcher.sh' "$workflow_file"
 grep -Fq 'restore_gateway_watchers()' "$workflow_file"
+grep -Fq 'arm_gateway_watchers_failsafe()' "$workflow_file"
+grep -Fq 'cancel_gateway_watchers_failsafe()' "$workflow_file"
+grep -Fq 'watcher_failsafe_seconds="\${IB_GATEWAY_WATCHER_FAILSAFE_SECONDS:-3900}"' "$workflow_file"
+grep -Fq 'sudo systemd-run --unit="\${watcher_failsafe_name}" --on-active="\${watcher_failsafe_seconds}s" --collect' "$workflow_file"
+grep -Fq 'systemctl enable --now '\''\${IBKR_GATEWAY_HEALTHCHECK_TIMER}'\'' '\''\${IBKR_GATEWAY_DAILY_RESTART_TIMER}'\''' "$workflow_file"
+grep -Fq 'sudo systemctl stop "\${watcher_failsafe_name}.timer" "\${watcher_failsafe_name}.service"' "$workflow_file"
 grep -Fq "trap 'status=\\\$?; if [ \"\\\${watchers_restored}\" != \"true\" ]; then restore_gateway_watchers || true; fi; exit \"\\\${status}\"' EXIT" "$workflow_file"
 grep -Fq "sudo env IB_GATEWAY_CONTAINER_NAME=\"\\\${container_name}\" IB_GATEWAY_COMPOSE_SERVICE_NAME=\"\\\${compose_service_name}\" bash ./scripts/recover_ib_gateway_ready.sh '\${IB_GATEWAY_MODE}'" "$workflow_file"
 grep -Fq 'sudo systemctl status "\${IBKR_GATEWAY_HEALTHCHECK_TIMER}" --no-pager' "$workflow_file"
@@ -107,6 +113,7 @@ done < <(grep -nFx '          restore_gateway_watchers' "$workflow_file" | cut -
 test "${#recover_lines[@]}" -eq 2
 test "${#health_watcher_lines[@]}" -eq 2
 test "${#restore_call_lines[@]}" -eq 2
+test "$(grep -cFx '          arm_gateway_watchers_failsafe' "$workflow_file")" -eq 2
 for i in 0 1; do
   if [ "${recover_lines[$i]}" -ge "${restore_call_lines[$i]}" ]; then
     echo "Gateway watchers must be restored after explicit recovery in deploy block $i" >&2
