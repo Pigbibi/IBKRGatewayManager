@@ -62,9 +62,8 @@ grep -Fq 'INPUT_CLICK_POSITION = (0.50, 0.40)' "$repo_dir/2fa_bot.py"
 grep -Fq 'MIN_TOTP_SECONDS_REMAINING = 15' "$repo_dir/2fa_bot.py"
 grep -Fq 'SMALL_GATEWAY_DIALOG_MAX_WIDTH = 650' "$repo_dir/2fa_bot.py"
 grep -Fq 'SMALL_GATEWAY_DIALOG_MAX_HEIGHT = 220' "$repo_dir/2fa_bot.py"
-grep -Fq 'def is_small_gateway_dialog(title, width, height):' "$repo_dir/2fa_bot.py"
-grep -Fq 'SMALL_CONNECTION_DIALOG_TITLE = "gateway"' "$repo_dir/2fa_bot.py"
-grep -Fq 'def is_small_connection_dialog(title, width, height):' "$repo_dir/2fa_bot.py"
+grep -Fq 'GATEWAY_BLOCKER_TITLES = (' "$repo_dir/2fa_bot.py"
+grep -Fq 'def is_gateway_blocker_dialog(title, width, height):' "$repo_dir/2fa_bot.py"
 grep -Fq 'is_dismissible_dialog_candidate(title, width, height)' "$repo_dir/2fa_bot.py"
 grep -Fq 'def type_totp_into_active_window(code):' "$repo_dir/2fa_bot.py"
 
@@ -81,9 +80,10 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 assert module.is_dismissible_dialog_candidate("Login Messages")
-assert module.is_dismissible_dialog_candidate("IBKR Gateway", 509, 131)
-assert module.is_dismissible_dialog_candidate("Gateway", 510, 131)
-assert not module.is_dismissible_dialog_candidate("IBKR Gateway", 700, 550)
-assert not module.is_dismissible_dialog_candidate("IBKR Gateway", 790, 610)
-assert not module.is_dismissible_dialog_candidate("Gateway", 790, 610)
+assert not module.is_dismissible_dialog_candidate("IBKR Gateway", 509, 131)
+assert not module.is_dismissible_dialog_candidate("Gateway", 510, 131)
+assert module.is_gateway_blocker_dialog("IBKR Gateway", 509, 131)
+assert module.is_gateway_blocker_dialog("Gateway", 510, 131)
+assert not module.is_gateway_blocker_dialog("IBKR Gateway", 700, 550)
+assert not module.is_gateway_blocker_dialog("Gateway", 790, 610)
 PY

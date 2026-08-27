@@ -37,16 +37,6 @@ DISMISS_LOGIN_MESSAGES = os.environ.get("IBKR_DISMISS_LOGIN_MESSAGES", "yes").st
     "no",
     "off",
 }
-DISMISS_SMALL_GATEWAY_DIALOGS = os.environ.get(
-    "IBKR_DISMISS_SMALL_GATEWAY_DIALOGS",
-    "yes",
-).strip().lower() not in {
-    "0",
-    "false",
-    "no",
-    "off",
-}
-
 # Window titles to search for 2FA prompts. Live IBKR accounts can show mobile
 # push / IB Key wording instead of the shorter TOTP-oriented prompts.
 SEARCH_PATTERNS = [
@@ -80,14 +70,18 @@ IGNORED_TITLE_KEYWORDS = (
 )
 DISMISSIBLE_DIALOG_SEARCH_PATTERNS = [
     "Login Messages",
-    "IBKR Gateway",
-    "Gateway",
 ]
 DISMISSIBLE_DIALOG_TITLE_KEYWORDS = (
     "login messages",
 )
-SMALL_GATEWAY_DIALOG_TITLE = "ibkr gateway"
-SMALL_CONNECTION_DIALOG_TITLE = "gateway"
+GATEWAY_BLOCKER_SEARCH_PATTERNS = [
+    "IBKR Gateway",
+    "Gateway",
+]
+GATEWAY_BLOCKER_TITLES = (
+    "ibkr gateway",
+    "gateway",
+)
 SMALL_GATEWAY_DIALOG_MAX_WIDTH = 650
 SMALL_GATEWAY_DIALOG_MAX_HEIGHT = 220
 # Current IBKR Gateway TOTP prompts place the code field in the upper half of
@@ -133,6 +127,7 @@ window_submission_counts = {}
 window_limit_warned = set()
 last_submission_reset_at = time.monotonic()
 dismissed_dialog_windows = set()
+reported_gateway_blocker_windows = set()
 
 
 @dataclass(frozen=True)
@@ -220,20 +215,15 @@ def is_auth_candidate(title):
     return any(keyword in normalized_title for keyword in AUTH_TITLE_KEYWORDS)
 
 
-def is_small_gateway_dialog(title, width, height):
-    if not DISMISS_SMALL_GATEWAY_DIALOGS:
-        return False
-    if title.lower() != SMALL_GATEWAY_DIALOG_TITLE:
-        return False
-    if not width or not height:
-        return False
-    return width <= SMALL_GATEWAY_DIALOG_MAX_WIDTH and height <= SMALL_GATEWAY_DIALOG_MAX_HEIGHT
+def is_gateway_blocker_dialog(title, width, height):
+    """Recognize compact Gateway dialogs without acknowledging them.
 
-
-def is_small_connection_dialog(title, width, height):
-    if not DISMISS_SMALL_GATEWAY_DIALOGS:
-        return False
-    if title.lower() != SMALL_CONNECTION_DIALOG_TITLE:
+    Gateway uses generic titles for both harmless notices and actionable login
+    failures. Sending Return to an unknown dialog can erase the only useful
+    diagnostic and trigger a restart loop, so these windows must remain visible
+    for explicit review.
+    """
+    if title.lower() not in GATEWAY_BLOCKER_TITLES:
         return False
     if not width or not height:
         return False
@@ -242,9 +232,7 @@ def is_small_connection_dialog(title, width, height):
 
 def is_dismissible_dialog_candidate(title, width=None, height=None):
     normalized_title = title.lower()
-    if any(keyword in normalized_title for keyword in DISMISSIBLE_DIALOG_TITLE_KEYWORDS):
-        return True
-    return is_small_gateway_dialog(title, width, height) or is_small_connection_dialog(title, width, height)
+    return any(keyword in normalized_title for keyword in DISMISSIBLE_DIALOG_TITLE_KEYWORDS)
 
 
 def find_windows_by_patterns(patterns):
@@ -285,6 +273,36 @@ def find_dismissible_dialogs():
             continue
         candidates.append(WindowCandidate(window_id, title, width, height))
     return candidates
+
+
+def find_gateway_blocker_dialogs():
+    candidates = []
+    for window_id in reversed(find_windows_by_patterns(GATEWAY_BLOCKER_SEARCH_PATTERNS)):
+        title = get_window_title(window_id)
+        width, height = get_window_geometry(window_id)
+        if not is_gateway_blocker_dialog(title, width, height):
+            continue
+        candidates.append(WindowCandidate(window_id, title, width, height))
+    return candidates
+
+
+def report_gateway_blocker_dialogs():
+    """Log a stable, non-sensitive signal and leave unknown Gateway UI intact."""
+    found = False
+    for candidate in find_gateway_blocker_dialogs():
+        found = True
+        if candidate.window_id in reported_gateway_blocker_windows:
+            continue
+        log.error(
+            "GATEWAY_UI_BLOCKER: manual review required; automatic dismissal is disabled "
+            "(id=%s, title=%r, size=%sx%s)",
+            candidate.window_id,
+            candidate.title,
+            candidate.width or "?",
+            candidate.height or "?",
+        )
+        reported_gateway_blocker_windows.add(candidate.window_id)
+    return found
 
 
 def dismiss_dialog(candidate):
@@ -447,6 +465,9 @@ def main():
 
     while True:
         try:
+            if report_gateway_blocker_dialogs():
+                time.sleep(CHECK_INTERVAL)
+                continue
             if dismiss_post_login_dialogs():
                 time.sleep(1)
                 continue

@@ -1,16 +1,9 @@
 name: Deploy and Keep Active
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - 'Dockerfile'
-      - 'docker-compose.yml'
-      - '2fa_bot.py'
-      - 'requirements.txt'
-      - 'scripts/**'
-      - 'container_overrides/**'
-  # Runs automatically every day at 0:00 UTC (8:00 AM Beijing Time)
+  # CI validates every push. Runtime maintenance never installs unreviewed
+  # source; binary/container changes require an explicit, selected rollout.
+  # Runs automatically every day at 0:00 UTC (8:00 AM Beijing Time).
   schedule:
     - cron: '0 0 * * *'
   workflow_dispatch:
@@ -57,6 +50,7 @@ jobs:
     env:
       TARGETS_JSON: ${{ vars.IB_GATEWAY_TARGETS_JSON }}
       SELECTED_TARGET: ${{ github.event.inputs.target }}
+      SELECTED_DEPLOY_MODE: ${{ github.event.inputs.deploy_mode }}
       LEGACY_GCP_PROJECT_ID: ${{ vars.IB_GATEWAY_GCP_PROJECT_ID }}
       LEGACY_GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.IB_GATEWAY_GCP_WORKLOAD_IDENTITY_PROVIDER }}
       LEGACY_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: ${{ vars.IB_GATEWAY_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
@@ -170,6 +164,12 @@ jobs:
               normalized.append(target)
 
           selected_name = env("SELECTED_TARGET") or "all"
+          selected_deploy_mode = env("SELECTED_DEPLOY_MODE") or "keepalive"
+          if selected_deploy_mode == "full" and selected_name == "all":
+              raise SystemExit(
+                  "A full gateway deployment requires one explicit target; "
+                  "use keepalive for all-target maintenance."
+              )
           if selected_name == "all":
               selected = normalized
           else:
@@ -242,10 +242,6 @@ jobs:
       - name: Check whether deployment config is complete
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          TWS_USERID: ${{ secrets.TWS_USERID }}
-          TWS_PASSWORD: ${{ secrets.TWS_PASSWORD }}
-          TOTP_SECRET: ${{ secrets.TOTP_SECRET }}
-          VNC_SERVER_PASSWORD: ${{ secrets.VNC_SERVER_PASSWORD }}
         run: |
           set -euo pipefail
 
@@ -283,6 +279,30 @@ jobs:
           }
 
           require_secret_source SSH_PRIVATE_KEY_SECRET_NAME SSH_PRIVATE_KEY SSH_PRIVATE_KEY
+
+      - name: Check full-deploy credential config
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_mode == 'full' }}
+        env:
+          TWS_USERID: ${{ secrets.TWS_USERID }}
+          TWS_PASSWORD: ${{ secrets.TWS_PASSWORD }}
+          TOTP_SECRET: ${{ secrets.TOTP_SECRET }}
+          VNC_SERVER_PASSWORD: ${{ secrets.VNC_SERVER_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          require_secret_source() {
+            local secret_name_var="$1"
+            local fallback_var="$2"
+            local label="$3"
+
+            if [ -n "${!secret_name_var:-}" ] || [ -n "${!fallback_var:-}" ]; then
+              return 0
+            fi
+
+            echo "${label} is required. Set ${secret_name_var} as a GitHub variable pointing to Secret Manager, or set ${fallback_var} as a GitHub Actions secret." >&2
+            exit 1
+          }
+
           require_secret_source TWS_USERID_SECRET_NAME TWS_USERID TWS_USERID
           require_secret_source TWS_PASSWORD_SECRET_NAME TWS_PASSWORD TWS_PASSWORD
           require_secret_source VNC_SERVER_PASSWORD_SECRET_NAME VNC_SERVER_PASSWORD VNC_SERVER_PASSWORD
@@ -305,7 +325,7 @@ jobs:
           version: '>= 416.0.0'
 
       - name: Sync GitHub secrets to Secret Manager
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.sync_github_secrets_to_secret_manager }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_mode == 'full' && inputs.sync_github_secrets_to_secret_manager }}
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           TWS_USERID: ${{ secrets.TWS_USERID }}
@@ -381,9 +401,43 @@ jobs:
             sync_secret "${TOTP_SECRET_SECRET_NAME:-}" "${TOTP_SECRET:-}" "TOTP_SECRET"
           fi
 
-      - name: Prepare SSH key and deployment files
+      - name: Prepare SSH key
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+
+          resolve_secret() {
+            local secret_name="$1"
+            local fallback_value="$2"
+
+            if [ -n "${secret_name:-}" ]; then
+              gcloud secrets versions access latest --project "${GCP_PROJECT_ID}" --secret "${secret_name}"
+            else
+              printf '%s' "${fallback_value}"
+            fi
+          }
+
+          ssh_private_key="$(resolve_secret "${SSH_PRIVATE_KEY_SECRET_NAME:-}" "${SSH_PRIVATE_KEY:-}")"
+          if [ -z "${ssh_private_key:-}" ]; then
+            echo "Resolved ssh_private_key is empty." >&2
+            exit 1
+          fi
+
+          install -d -m 700 "$RUNNER_TEMP/ssh"
+          SSH_KEY_FILE="$RUNNER_TEMP/ssh/google_compute_engine"
+          printf '%s\n' "$ssh_private_key" | tr -d '\r' > "$SSH_KEY_FILE"
+          chmod 600 "$SSH_KEY_FILE"
+          if ! ssh-keygen -y -f "$SSH_KEY_FILE" > "$SSH_KEY_FILE.pub"; then
+            echo "Resolved SSH private key is invalid or passphrase-protected; provide an unencrypted private key that matches the VM authorized_keys entry." >&2
+            exit 1
+          fi
+          chmod 644 "$SSH_KEY_FILE.pub"
+          echo "SSH_KEY_FILE=$SSH_KEY_FILE" >> "$GITHUB_ENV"
+
+      - name: Prepare full-deploy runtime environment
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_mode == 'full' }}
+        env:
           TWS_USERID: ${{ secrets.TWS_USERID }}
           TWS_PASSWORD: ${{ secrets.TWS_PASSWORD }}
           TOTP_SECRET: ${{ secrets.TOTP_SECRET }}
@@ -402,7 +456,6 @@ jobs:
             fi
           }
 
-          ssh_private_key="$(resolve_secret "${SSH_PRIVATE_KEY_SECRET_NAME:-}" "${SSH_PRIVATE_KEY:-}")"
           tws_userid="$(resolve_secret "${TWS_USERID_SECRET_NAME:-}" "${TWS_USERID:-}")"
           tws_password="$(resolve_secret "${TWS_PASSWORD_SECRET_NAME:-}" "${TWS_PASSWORD:-}")"
           totp_secret=""
@@ -411,7 +464,7 @@ jobs:
           fi
           vnc_server_password="$(resolve_secret "${VNC_SERVER_PASSWORD_SECRET_NAME:-}" "${VNC_SERVER_PASSWORD:-}")"
 
-          required_values=(ssh_private_key tws_userid tws_password vnc_server_password)
+          required_values=(tws_userid tws_password vnc_server_password)
           twofa_autofill="$(printf '%s' "${IBKR_2FA_AUTOFILL:-}" | tr '[:upper:]' '[:lower:]')"
           if [ "${twofa_autofill}" = "yes" ] || [ "${twofa_autofill}" = "true" ] || [ "${twofa_autofill}" = "1" ]; then
             required_values+=(totp_secret)
@@ -434,17 +487,6 @@ jobs:
           mask_if_present "${tws_password:-}"
           mask_if_present "${totp_secret:-}"
           mask_if_present "${vnc_server_password:-}"
-
-          install -d -m 700 "$RUNNER_TEMP/ssh"
-          SSH_KEY_FILE="$RUNNER_TEMP/ssh/google_compute_engine"
-          printf '%s\n' "$ssh_private_key" | tr -d '\r' > "$SSH_KEY_FILE"
-          chmod 600 "$SSH_KEY_FILE"
-          if ! ssh-keygen -y -f "$SSH_KEY_FILE" > "$SSH_KEY_FILE.pub"; then
-            echo "Resolved SSH private key is invalid or passphrase-protected; provide an unencrypted private key that matches the VM authorized_keys entry." >&2
-            exit 1
-          fi
-          chmod 644 "$SSH_KEY_FILE.pub"
-          echo "SSH_KEY_FILE=$SSH_KEY_FILE" >> "$GITHUB_ENV"
 
           ENV_FILE="$RUNNER_TEMP/ibkr-gateway.env"
           export ENV_FILE
@@ -603,13 +645,15 @@ jobs:
             copy_remote_file "${ENV_FILE}" "${DEPLOY_PATH}/.env"
           }
 
-          prepare_remote_workspace
-
-          DEPLOY_MODE="full"
-          if [ "${DEPLOY_EVENT_NAME}" = "schedule" ]; then
-            DEPLOY_MODE="keepalive"
-          elif [ "${DEPLOY_EVENT_NAME}" = "workflow_dispatch" ]; then
+          DEPLOY_MODE="keepalive"
+          if [ "${DEPLOY_EVENT_NAME}" = "workflow_dispatch" ]; then
             DEPLOY_MODE="${WORKFLOW_DISPATCH_MODE:-keepalive}"
+          fi
+
+          if [ "${DEPLOY_MODE}" = "full" ]; then
+            prepare_remote_workspace
+          else
+            log_step "Runtime keepalive uses the already released source and environment"
           fi
 
           if [ "${DEPLOY_MODE}" = "keepalive" ]; then
