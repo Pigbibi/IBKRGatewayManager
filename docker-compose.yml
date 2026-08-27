@@ -27,7 +27,11 @@ services:
       # e2-micro has less than 1 GiB RAM. The upstream image defaults to
       # -Xmx768m, which can starve sshd/Docker/guest-agent. Keep this
       # configurable, but use a safer default for the current VM.
-      - JAVA_HEAP_SIZE=${JAVA_HEAP_SIZE:-512}
+      # 384 MiB was stable in the recovery smoke check: it leaves
+      # room for the guest OS and prevents the Gateway UI from being killed
+      # before the login dialog can report a broker-side failure. Operators can
+      # still set JAVA_HEAP_SIZE explicitly for a larger VM.
+      - JAVA_HEAP_SIZE=${JAVA_HEAP_SIZE:-384}
       # The upstream vmoptions use 20 parallel GC threads, which is too
       # aggressive for the current 2 vCPU VM and can slow Gateway startup.
       - IB_GATEWAY_PARALLEL_GC_THREADS=${IB_GATEWAY_PARALLEL_GC_THREADS:-2}
