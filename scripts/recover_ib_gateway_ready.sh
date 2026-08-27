@@ -98,6 +98,10 @@ wait_for_ready_with_progress() {
   fi
 
   while [ "${extension}" -lt "${progress_extensions}" ]; do
+    if gateway_ui_blocker_present; then
+      stop_for_gateway_ui_blocker
+    fi
+
     if ! gateway_recently_progressing; then
       return 1
     fi
