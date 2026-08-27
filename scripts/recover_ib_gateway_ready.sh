@@ -78,6 +78,16 @@ gateway_recently_progressing() {
   gateway_recently_progressing_from_docker_logs || gateway_recently_progressing_from_file_logs
 }
 
+gateway_ui_blocker_present() {
+  IB_GATEWAY_CONTAINER_NAME="${container_name}" \
+    bash "${script_dir}/detect_gateway_ui_blocker.sh"
+}
+
+stop_for_gateway_ui_blocker() {
+  echo "GATEWAY_UI_BLOCKER: Gateway dialog requires account/login review; skipping automatic restart and recreate." >&2
+  exit 3
+}
+
 wait_for_ready_with_progress() {
   local timeout_seconds="$1"
   local stage="$2"
@@ -110,8 +120,16 @@ echo "Ensuring ${container_name} is running before readiness check."
 docker compose up -d --no-build "${compose_service_name}"
 ensure_2fa_bot_running
 
+if gateway_ui_blocker_present; then
+  stop_for_gateway_ui_blocker
+fi
+
 if wait_for_ready_with_progress "${initial_wait_seconds}" "initial"; then
   exit 0
+fi
+
+if gateway_ui_blocker_present; then
+  stop_for_gateway_ui_blocker
 fi
 
 echo "IB gateway API was not ready; restarting ${container_name} and retrying." >&2

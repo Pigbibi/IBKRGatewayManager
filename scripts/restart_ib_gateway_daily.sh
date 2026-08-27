@@ -10,6 +10,12 @@ ready_wait_seconds="${IB_GATEWAY_DAILY_RESTART_READY_WAIT_SECONDS:-240}"
 
 cd "${repo_dir}"
 
+if IB_GATEWAY_CONTAINER_NAME="${container_name}" \
+  bash "${script_dir}/detect_gateway_ui_blocker.sh"; then
+  echo "GATEWAY_UI_BLOCKER: Gateway dialog requires account/login review; skipping scheduled restart." >&2
+  exit 3
+fi
+
 echo "Restarting ${container_name} for scheduled IB Gateway refresh (mode=${gateway_mode})."
 docker compose up -d --no-build "${compose_service_name}"
 docker compose restart "${compose_service_name}"

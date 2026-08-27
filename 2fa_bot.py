@@ -305,6 +305,17 @@ def report_gateway_blocker_dialogs():
     return found
 
 
+def gateway_ui_blocker_present() -> bool:
+    """Return whether a compact, unacknowledged Gateway error is visible.
+
+    The health-recovery scripts call this through the container instead of
+    reading historical logs. A cleared dialog therefore resumes normal
+    recovery automatically, while an active account/login error is never
+    mistaken for a recoverable API outage.
+    """
+    return bool(find_gateway_blocker_dialogs())
+
+
 def dismiss_dialog(candidate):
     if candidate.window_id not in dismissed_dialog_windows:
         log.info(
@@ -480,4 +491,6 @@ def main():
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--check-gateway-ui-blocker"]:
+        raise SystemExit(0 if gateway_ui_blocker_present() else 1)
     main()
