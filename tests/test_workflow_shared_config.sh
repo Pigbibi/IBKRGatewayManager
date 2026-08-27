@@ -14,7 +14,7 @@ grep -Fq '"gcp_project_id": env("LEGACY_GCP_PROJECT_ID", "interactivebrokersquan
 grep -Fq 'providers/github-ibkr-gateway-main' "$workflow_file"
 grep -Fq 'ibkr-gateway-deploy@interactivebrokersquant.iam.gserviceaccount.com' "$workflow_file"
 grep -Fq 'id-token: write' "$workflow_file"
-grep -Fq 'timeout-minutes: 60' "$workflow_file"
+grep -Fq 'timeout-minutes: 75' "$workflow_file"
 grep -Fq 'sync_github_secrets_to_secret_manager:' "$workflow_file"
 grep -Fq 'deploy_mode:' "$workflow_file"
 grep -Fq 'workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}' "$workflow_file"
