@@ -15,8 +15,19 @@ progress_wait_seconds="${IB_GATEWAY_RECOVERY_PROGRESS_WAIT_SECONDS:-420}"
 progress_extensions="${IB_GATEWAY_RECOVERY_PROGRESS_EXTENSIONS:-2}"
 progress_window_seconds="${IB_GATEWAY_RECOVERY_PROGRESS_WINDOW_SECONDS:-420}"
 progress_regex="${IB_GATEWAY_RECOVERY_PROGRESS_REGEX:-IBC: (Starting Gateway|Login attempt|Second Factor Authentication|Login has completed|Configuration tasks completed|Found Gateway main window|Getting config dialog|Getting main window)|Authentication window found|Auto-fill submitted|Dismissing post-login dialog|Passed token authentication|Authentication completed|Security code:}"
+transient_dialog_restart_attempts="${IB_GATEWAY_TRANSIENT_DIALOG_RESTART_ATTEMPTS:-1}"
+transient_dialog_restart_wait_seconds="${IB_GATEWAY_TRANSIENT_DIALOG_RESTART_WAIT_SECONDS:-180}"
 lock_file="${IB_GATEWAY_RECOVERY_LOCK_FILE:-/var/lock/ib_gateway_recovery.lock}"
 lock_wait_seconds="${IB_GATEWAY_RECOVERY_LOCK_WAIT_SECONDS:-900}"
+transient_dialog_restart_count=0
+
+for value_name in transient_dialog_restart_attempts transient_dialog_restart_wait_seconds; do
+  value="${!value_name}"
+  if ! [[ "${value}" =~ ^[0-9]+$ ]] || [ "${value}" -eq 0 ] && [ "${value_name}" = "transient_dialog_restart_wait_seconds" ]; then
+    echo "${value_name} must be a non-negative integer; transient_dialog_restart_wait_seconds must be greater than zero." >&2
+    exit 2
+  fi
+done
 
 cd "${repo_dir}"
 
@@ -84,8 +95,30 @@ gateway_ui_blocker_present() {
 }
 
 stop_for_gateway_ui_blocker() {
-  echo "GATEWAY_UI_BLOCKER: Gateway dialog requires account/login review; skipping automatic restart and recreate." >&2
+  echo "GATEWAY_UI_BLOCKER: Gateway dialog requires account/login review after bounded no-click recovery; skipping further automatic restart and recreate." >&2
   exit 3
+}
+
+recover_from_gateway_ui_blocker() {
+  if [ "${transient_dialog_restart_count}" -ge "${transient_dialog_restart_attempts}" ]; then
+    stop_for_gateway_ui_blocker
+  fi
+
+  transient_dialog_restart_count=$((transient_dialog_restart_count + 1))
+  echo "Compact Gateway dialog observed while the API is unavailable; restarting without acknowledging the dialog (${transient_dialog_restart_count}/${transient_dialog_restart_attempts})." >&2
+  docker compose restart "${compose_service_name}"
+  ensure_2fa_bot_running
+
+  if wait_for_ready "${transient_dialog_restart_wait_seconds}"; then
+    exit 0
+  fi
+
+  if gateway_ui_blocker_present; then
+    stop_for_gateway_ui_blocker
+  fi
+
+  echo "IB gateway API remained unavailable after bounded no-click dialog recovery." >&2
+  exit 1
 }
 
 wait_for_ready_with_progress() {
@@ -99,7 +132,7 @@ wait_for_ready_with_progress() {
 
   while [ "${extension}" -lt "${progress_extensions}" ]; do
     if gateway_ui_blocker_present; then
-      stop_for_gateway_ui_blocker
+      return 3
     fi
 
     if ! gateway_recently_progressing; then
@@ -125,15 +158,17 @@ docker compose up -d --no-build "${compose_service_name}"
 ensure_2fa_bot_running
 
 if gateway_ui_blocker_present; then
-  stop_for_gateway_ui_blocker
+  recover_from_gateway_ui_blocker
 fi
 
 if wait_for_ready_with_progress "${initial_wait_seconds}" "initial"; then
   exit 0
+else
+  initial_wait_status=$?
 fi
 
-if gateway_ui_blocker_present; then
-  stop_for_gateway_ui_blocker
+if [ "${initial_wait_status}" -eq 3 ]; then
+  recover_from_gateway_ui_blocker
 fi
 
 echo "IB gateway API was not ready; restarting ${container_name} and retrying." >&2
@@ -143,6 +178,12 @@ ensure_2fa_bot_running
 
 if wait_for_ready_with_progress "${restart_wait_seconds}" "restart"; then
   exit 0
+else
+  restart_wait_status=$?
+fi
+
+if [ "${restart_wait_status}" -eq 3 ]; then
+  recover_from_gateway_ui_blocker
 fi
 
 echo "IB gateway API is still not ready; recreating ${container_name} and retrying." >&2
@@ -151,6 +192,12 @@ ensure_2fa_bot_running
 
 if wait_for_ready_with_progress "${recreate_wait_seconds}" "recreate"; then
   exit 0
+else
+  recreate_wait_status=$?
+fi
+
+if [ "${recreate_wait_status}" -eq 3 ]; then
+  recover_from_gateway_ui_blocker
 fi
 
 echo "IB gateway API did not recover after restart/recreate." >&2

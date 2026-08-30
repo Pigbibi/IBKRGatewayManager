@@ -12,8 +12,7 @@ cd "${repo_dir}"
 
 if IB_GATEWAY_CONTAINER_NAME="${container_name}" \
   bash "${script_dir}/detect_gateway_ui_blocker.sh"; then
-  echo "GATEWAY_UI_BLOCKER: Gateway dialog requires account/login review; skipping scheduled restart." >&2
-  exit 3
+  echo "Compact Gateway dialog is present; continuing with the scheduled no-click restart." >&2
 fi
 
 echo "Restarting ${container_name} for scheduled IB Gateway refresh (mode=${gateway_mode})."

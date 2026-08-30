@@ -25,6 +25,7 @@ It supports the system but does not decide which strategy should be live. Strate
 - Prefer backward-compatible changes unless a coordinated migration is planned.
 - Keep secrets and environment-specific settings outside the shared library code.
 - Document changes that affect multiple platforms or strategy packages.
+- A compact, generic Gateway dialog never causes a click-through. If the API is unavailable, the watcher may perform one bounded container restart without acknowledging the dialog; an unresolved dialog still fails closed for operator review.
 
 ## Repository layout
 
