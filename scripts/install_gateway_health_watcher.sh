@@ -19,6 +19,8 @@ execution_window_timezone="${IB_GATEWAY_EXECUTION_WINDOW_TIMEZONE:-America/New_Y
 failure_threshold="${IB_GATEWAY_HEALTHCHECK_FAILURE_THRESHOLD:-2}"
 probe_timeout_seconds="${IB_GATEWAY_HEALTHCHECK_PROBE_TIMEOUT_SECONDS:-30}"
 daily_restart_calendar="${IB_GATEWAY_DAILY_RESTART_ON_CALENDAR:-*-*-* 10:30:00 UTC}"
+transient_dialog_restart_attempts="${IB_GATEWAY_TRANSIENT_DIALOG_RESTART_ATTEMPTS:-1}"
+transient_dialog_restart_wait_seconds="${IB_GATEWAY_TRANSIENT_DIALOG_RESTART_WAIT_SECONDS:-180}"
 
 . "$script_dir/ibkr_gateway_units.sh"
 resolve_ibkr_gateway_unit_names "$container_name" "$unit_suffix"
@@ -53,6 +55,8 @@ Environment=IB_GATEWAY_MODE=$gateway_mode
 Environment=COMPOSE_FILE=$compose_file
 Environment=IB_GATEWAY_RECOVERY_LOCK_FILE=$recovery_lock_file
 Environment=IB_GATEWAY_RECOVERY_LOCK_WAIT_SECONDS=0
+Environment=IB_GATEWAY_TRANSIENT_DIALOG_RESTART_ATTEMPTS=$transient_dialog_restart_attempts
+Environment=IB_GATEWAY_TRANSIENT_DIALOG_RESTART_WAIT_SECONDS=$transient_dialog_restart_wait_seconds
 Environment=IB_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS=$health_interval_seconds
 Environment=IB_GATEWAY_EXECUTION_WINDOW_INTERVAL_SECONDS=$execution_window_interval_seconds
 Environment=IB_GATEWAY_EXECUTION_WINDOW_TIMES=$execution_window_times
@@ -91,6 +95,8 @@ Environment=IB_GATEWAY_COMPOSE_SERVICE_NAME=$compose_service_name
 Environment=IB_GATEWAY_MODE=$gateway_mode
 Environment=COMPOSE_FILE=$compose_file
 Environment=IB_GATEWAY_RECOVERY_LOCK_FILE=$recovery_lock_file
+Environment=IB_GATEWAY_TRANSIENT_DIALOG_RESTART_ATTEMPTS=$transient_dialog_restart_attempts
+Environment=IB_GATEWAY_TRANSIENT_DIALOG_RESTART_WAIT_SECONDS=$transient_dialog_restart_wait_seconds
 ExecStart=/bin/bash -lc 'cd "$repo_dir" && exec ./scripts/restart_ib_gateway_daily.sh "$gateway_mode"'
 EOF
 
