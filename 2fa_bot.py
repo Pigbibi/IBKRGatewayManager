@@ -476,6 +476,15 @@ def main():
 
     while True:
         try:
+            # A generic, compact Gateway dialog can remain mapped after a
+            # transient login failure. It remains useful as a visible,
+            # fail-closed diagnostic when it is the only actionable UI, but
+            # it must not mask the explicit second-factor prompt underneath.
+            # Prefer the narrowly identified authentication window; this bot
+            # never clicks or dismisses an unknown Gateway dialog.
+            if find_and_fill():
+                time.sleep(FILL_COOLDOWN)
+                continue
             if report_gateway_blocker_dialogs():
                 time.sleep(CHECK_INTERVAL)
                 continue
