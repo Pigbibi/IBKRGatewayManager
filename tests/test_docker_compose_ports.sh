@@ -90,4 +90,23 @@ module.find_gateway_blocker_dialogs = lambda: []
 assert not module.gateway_ui_blocker_present()
 module.find_gateway_blocker_dialogs = lambda: [module.WindowCandidate("1", "Gateway", 510, 131)]
 assert module.gateway_ui_blocker_present()
+
+
+class StopLoop(BaseException):
+    pass
+
+
+module.validate_config = lambda: None
+module.find_and_fill = lambda: True
+module.report_gateway_blocker_dialogs = lambda: (_ for _ in ()).throw(
+    AssertionError("an explicit 2FA prompt must take priority over a Gateway blocker")
+)
+module.dismiss_post_login_dialogs = lambda: (_ for _ in ()).throw(
+    AssertionError("an explicit 2FA prompt must take priority over post-login dialogs")
+)
+module.time.sleep = lambda _: (_ for _ in ()).throw(StopLoop())
+try:
+    module.main()
+except StopLoop:
+    pass
 PY
