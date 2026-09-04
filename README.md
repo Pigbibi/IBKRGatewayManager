@@ -27,6 +27,33 @@ It supports the system but does not decide which strategy should be live. Strate
 - Document changes that affect multiple platforms or strategy packages.
 - A compact, generic Gateway dialog never causes a click-through. If the API is unavailable, the watcher may perform one bounded container restart without acknowledging the dialog; an unresolved dialog still fails closed for operator review.
 
+## Gateway target configuration
+
+Deployment workflows require the repository-level Actions variable `IB_GATEWAY_TARGETS_JSON`. It is a JSON object keyed by a non-sensitive target label (or a list whose entries include `name`). Every target supplies its own GCP project, Workload Identity provider, service account, VM location, and deployment settings. The repository has no default gateway or cloud account.
+
+```json
+{
+  "gateway-a": {
+    "gcp_project_id": "<gcp-project-id>",
+    "gcp_workload_identity_provider": "projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>",
+    "gcp_workload_identity_service_account": "<service-account>@<gcp-project-id>.iam.gserviceaccount.com",
+    "gce_user": "<vm-user>",
+    "gce_instance_name": "<vm-name>",
+    "gce_zone": "<gcp-zone>",
+    "deploy_path": "/opt/ibkr-gateway",
+    "mode": "paper",
+    "container_name": "<container-name>",
+    "compose_project_name": "<compose-project>",
+    "compose_service_name": "<compose-service>",
+    "cloud_run_egress_cidr": "<trusted-egress-cidr>",
+    "allow_connections_from_localhost_only": "no",
+    "ssh_private_key_secret_name": "<secret-manager-secret-name>"
+  }
+}
+```
+
+Use Secret Manager secret *names* (and, for full deployments, the corresponding credential secret-name fields) rather than secret values. Do not commit target JSON, credentials, account identifiers, addresses, or private keys. A missing target configuration fails before any cloud authentication or remote operation.
+
 ## Repository layout
 
 - `tests/`: unit, contract, and regression tests.

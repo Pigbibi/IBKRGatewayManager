@@ -51,36 +51,6 @@ jobs:
       TARGETS_JSON: ${{ vars.IB_GATEWAY_TARGETS_JSON }}
       SELECTED_TARGET: ${{ github.event.inputs.target }}
       SELECTED_DEPLOY_MODE: ${{ github.event.inputs.deploy_mode }}
-      LEGACY_GCP_PROJECT_ID: ${{ vars.IB_GATEWAY_GCP_PROJECT_ID }}
-      LEGACY_GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.IB_GATEWAY_GCP_WORKLOAD_IDENTITY_PROVIDER }}
-      LEGACY_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: ${{ vars.IB_GATEWAY_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
-      LEGACY_GCE_USER: ${{ vars.IB_GATEWAY_GCE_USER }}
-      LEGACY_GCE_INSTANCE_NAME: ${{ vars.IB_GATEWAY_INSTANCE_NAME }}
-      LEGACY_GCE_ZONE: ${{ vars.IB_GATEWAY_ZONE }}
-      LEGACY_DEPLOY_PATH: ${{ vars.IB_GATEWAY_DEPLOY_PATH }}
-      LEGACY_MODE: ${{ vars.IB_GATEWAY_MODE }}
-      LEGACY_CONTAINER_NAME: ${{ vars.IB_GATEWAY_CONTAINER_NAME }}
-      LEGACY_COMPOSE_PROJECT_NAME: ${{ vars.IB_GATEWAY_COMPOSE_PROJECT_NAME }}
-      LEGACY_COMPOSE_SERVICE_NAME: ${{ vars.IB_GATEWAY_COMPOSE_SERVICE_NAME }}
-      LEGACY_UNIT_SUFFIX: ${{ vars.IB_GATEWAY_UNIT_SUFFIX }}
-      LEGACY_LIVE_HOST_PORT: ${{ vars.IB_GATEWAY_LIVE_HOST_PORT }}
-      LEGACY_PAPER_HOST_PORT: ${{ vars.IB_GATEWAY_PAPER_HOST_PORT }}
-      LEGACY_VNC_HOST_ADDRESS: ${{ vars.IB_GATEWAY_VNC_HOST_ADDRESS }}
-      LEGACY_VNC_HOST_PORT: ${{ vars.IB_GATEWAY_VNC_HOST_PORT }}
-      LEGACY_CLOUD_RUN_EGRESS_CIDR: ${{ vars.IB_GATEWAY_CLOUD_RUN_EGRESS_CIDR }}
-      LEGACY_ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY: ${{ vars.IB_GATEWAY_ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY }}
-      LEGACY_TWS_ACCEPT_INCOMING: ${{ vars.IB_GATEWAY_TWS_ACCEPT_INCOMING }}
-      LEGACY_READ_ONLY_API: ${{ vars.IB_GATEWAY_READ_ONLY_API }}
-      LEGACY_TWOFA_DEVICE: ${{ vars.IB_GATEWAY_TWOFA_DEVICE }}
-      LEGACY_2FA_AUTOFILL: ${{ vars.IB_GATEWAY_2FA_AUTOFILL }}
-      LEGACY_2FA_MAX_SUBMISSIONS: ${{ vars.IB_GATEWAY_2FA_MAX_SUBMISSIONS }}
-      LEGACY_2FA_MAX_SUBMISSIONS_PER_WINDOW: ${{ vars.IB_GATEWAY_2FA_MAX_SUBMISSIONS_PER_WINDOW }}
-      LEGACY_2FA_SUBMISSION_RESET_SECONDS: ${{ vars.IB_GATEWAY_2FA_SUBMISSION_RESET_SECONDS }}
-      LEGACY_SSH_PRIVATE_KEY_SECRET_NAME: ${{ vars.IB_GATEWAY_SSH_PRIVATE_KEY_SECRET_NAME }}
-      LEGACY_TWS_USERID_SECRET_NAME: ${{ vars.IB_GATEWAY_TWS_USERID_SECRET_NAME }}
-      LEGACY_TWS_PASSWORD_SECRET_NAME: ${{ vars.IB_GATEWAY_TWS_PASSWORD_SECRET_NAME }}
-      LEGACY_TOTP_SECRET_SECRET_NAME: ${{ vars.IB_GATEWAY_TOTP_SECRET_SECRET_NAME }}
-      LEGACY_VNC_SERVER_PASSWORD_SECRET_NAME: ${{ vars.IB_GATEWAY_VNC_SERVER_PASSWORD_SECRET_NAME }}
     steps:
       - id: targets
         name: Select gateway targets
@@ -91,64 +61,23 @@ jobs:
           import json
           import os
 
-          def env(name: str, default: str = "") -> str:
-              return os.environ.get(name, "") or default
+          raw_targets = os.environ.get("TARGETS_JSON", "").strip()
+          if not raw_targets:
+              raise SystemExit("IB_GATEWAY_TARGETS_JSON is required")
 
-          raw_targets = env("TARGETS_JSON").strip()
-          if raw_targets:
-              loaded = json.loads(raw_targets)
-              if isinstance(loaded, dict):
-                  targets = []
-                  for name, config in loaded.items():
-                      if not isinstance(config, dict):
-                          raise SystemExit(f"Target {name} must be an object")
-                      target = dict(config)
-                      target.setdefault("name", name)
-                      targets.append(target)
-              elif isinstance(loaded, list):
-                  targets = loaded
-              else:
-                  raise SystemExit("IB_GATEWAY_TARGETS_JSON must be an object or a list")
+          loaded = json.loads(raw_targets)
+          if isinstance(loaded, dict):
+              targets = []
+              for name, config in loaded.items():
+                  if not isinstance(config, dict):
+                      raise SystemExit(f"Target {name} must be an object")
+                  target = dict(config)
+                  target.setdefault("name", name)
+                  targets.append(target)
+          elif isinstance(loaded, list):
+              targets = loaded
           else:
-              targets = [{
-                  "name": "default",
-                  "gcp_project_id": env("LEGACY_GCP_PROJECT_ID", "interactivebrokersquant"),
-                  "gcp_workload_identity_provider": env(
-                      "LEGACY_GCP_WORKLOAD_IDENTITY_PROVIDER",
-                      "projects/303168642265/locations/global/workloadIdentityPools/github-actions/providers/github-ibkr-gateway-main",
-                  ),
-                  "gcp_workload_identity_service_account": env(
-                      "LEGACY_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT",
-                      "ibkr-gateway-deploy@interactivebrokersquant.iam.gserviceaccount.com",
-                  ),
-                  "gce_user": env("LEGACY_GCE_USER"),
-                  "gce_instance_name": env("LEGACY_GCE_INSTANCE_NAME"),
-                  "gce_zone": env("LEGACY_GCE_ZONE"),
-                  "deploy_path": env("LEGACY_DEPLOY_PATH"),
-                  "mode": env("LEGACY_MODE"),
-                  "container_name": env("LEGACY_CONTAINER_NAME"),
-                  "compose_project_name": env("LEGACY_COMPOSE_PROJECT_NAME"),
-                  "compose_service_name": env("LEGACY_COMPOSE_SERVICE_NAME"),
-                  "unit_suffix": env("LEGACY_UNIT_SUFFIX"),
-                  "live_host_port": env("LEGACY_LIVE_HOST_PORT"),
-                  "paper_host_port": env("LEGACY_PAPER_HOST_PORT"),
-                  "vnc_host_address": env("LEGACY_VNC_HOST_ADDRESS"),
-                  "vnc_host_port": env("LEGACY_VNC_HOST_PORT"),
-                  "cloud_run_egress_cidr": env("LEGACY_CLOUD_RUN_EGRESS_CIDR"),
-                  "allow_connections_from_localhost_only": env("LEGACY_ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY"),
-                  "tws_accept_incoming": env("LEGACY_TWS_ACCEPT_INCOMING"),
-                  "read_only_api": env("LEGACY_READ_ONLY_API"),
-                  "twofa_device": env("LEGACY_TWOFA_DEVICE"),
-                  "ibkr_2fa_autofill": env("LEGACY_2FA_AUTOFILL"),
-                  "ibkr_2fa_max_submissions": env("LEGACY_2FA_MAX_SUBMISSIONS"),
-                  "ibkr_2fa_max_submissions_per_window": env("LEGACY_2FA_MAX_SUBMISSIONS_PER_WINDOW"),
-                  "ibkr_2fa_submission_reset_seconds": env("LEGACY_2FA_SUBMISSION_RESET_SECONDS"),
-                  "ssh_private_key_secret_name": env("LEGACY_SSH_PRIVATE_KEY_SECRET_NAME"),
-                  "tws_userid_secret_name": env("LEGACY_TWS_USERID_SECRET_NAME"),
-                  "tws_password_secret_name": env("LEGACY_TWS_PASSWORD_SECRET_NAME"),
-                  "totp_secret_secret_name": env("LEGACY_TOTP_SECRET_SECRET_NAME"),
-                  "vnc_server_password_secret_name": env("LEGACY_VNC_SERVER_PASSWORD_SECRET_NAME"),
-              }]
+              raise SystemExit("IB_GATEWAY_TARGETS_JSON must be an object or a list")
 
           normalized = []
           seen = set()
@@ -163,8 +92,8 @@ jobs:
               seen.add(name)
               normalized.append(target)
 
-          selected_name = env("SELECTED_TARGET") or "all"
-          selected_deploy_mode = env("SELECTED_DEPLOY_MODE") or "keepalive"
+          selected_name = os.environ.get("SELECTED_TARGET", "") or "all"
+          selected_deploy_mode = os.environ.get("SELECTED_DEPLOY_MODE", "") or "keepalive"
           if selected_deploy_mode == "full" and selected_name == "all":
               raise SystemExit(
                   "A full gateway deployment requires one explicit target; "

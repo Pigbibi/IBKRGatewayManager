@@ -10,9 +10,41 @@ grep -Fq 'target:' "$workflow_file"
 grep -Fq 'IB_GATEWAY_TARGETS_JSON' "$workflow_file"
 grep -Fq 'matrix: ${{ fromJSON(needs.select-targets.outputs.matrix) }}' "$workflow_file"
 grep -Fq 'GCP_PROJECT_ID: ${{ matrix.target.gcp_project_id }}' "$workflow_file"
-grep -Fq '"gcp_project_id": env("LEGACY_GCP_PROJECT_ID", "interactivebrokersquant")' "$workflow_file"
-grep -Fq 'providers/github-ibkr-gateway-main' "$workflow_file"
-grep -Fq 'ibkr-gateway-deploy@interactivebrokersquant.iam.gserviceaccount.com' "$workflow_file"
+grep -Fq 'IB_GATEWAY_TARGETS_JSON is required' "$workflow_file"
+! grep -Fq 'LEGACY_' "$workflow_file"
+! grep -Fq 'interactivebrokersquant' "$workflow_file"
+! grep -Fq 'github-ibkr-gateway-main' "$workflow_file"
+! grep -Fq 'ibkr-gateway-deploy@' "$workflow_file"
+
+python3 - "$workflow_file" <<'PY'
+from pathlib import Path
+import os
+import subprocess
+import sys
+import tempfile
+
+workflow = Path(sys.argv[1]).read_text(encoding="utf-8")
+start = "          python3 - <<'PY'\n"
+code = workflow.split(start, 1)[1].split("          PY\n", 1)[0]
+code = "\n".join(line.removeprefix("          ") for line in code.splitlines())
+
+def select(targets_json: str) -> subprocess.CompletedProcess[str]:
+    with tempfile.NamedTemporaryFile() as output:
+        env = os.environ | {
+            "TARGETS_JSON": targets_json,
+            "SELECTED_TARGET": "all",
+            "SELECTED_DEPLOY_MODE": "keepalive",
+            "GITHUB_OUTPUT": output.name,
+        }
+        return subprocess.run([sys.executable, "-c", code], env=env, text=True, capture_output=True)
+
+missing = select("")
+assert missing.returncode != 0
+assert "IB_GATEWAY_TARGETS_JSON is required" in missing.stderr
+
+configured = select('{"gateway-a": {}}')
+assert configured.returncode == 0, configured.stderr
+PY
 grep -Fq 'id-token: write' "$workflow_file"
 grep -Fq 'timeout-minutes: 75' "$workflow_file"
 grep -Fq 'sync_github_secrets_to_secret_manager:' "$workflow_file"
@@ -23,33 +55,6 @@ grep -Fq "DEPLOY_EVENT_NAME: \${{ github.event_name }}" "$workflow_file"
 grep -Fq "WORKFLOW_DISPATCH_MODE: \${{ github.event.inputs.deploy_mode }}" "$workflow_file"
 grep -Fq "WORKFLOW_DISPATCH_ALLOW_VM_RESET: \${{ github.event.inputs.allow_vm_reset }}" "$workflow_file"
 grep -Fq "WORKFLOW_DISPATCH_REBUILD_WITHOUT_CACHE: \${{ github.event.inputs.rebuild_without_cache }}" "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_INSTANCE_NAME' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_ZONE' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_MODE' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_CONTAINER_NAME' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_COMPOSE_PROJECT_NAME' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_COMPOSE_SERVICE_NAME' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_UNIT_SUFFIX' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_LIVE_HOST_PORT' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_PAPER_HOST_PORT' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_VNC_HOST_ADDRESS' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_VNC_HOST_PORT' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_GCE_USER' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_DEPLOY_PATH' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_CLOUD_RUN_EGRESS_CIDR' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_ALLOW_CONNECTIONS_FROM_LOCALHOST_ONLY' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_TWS_ACCEPT_INCOMING' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_READ_ONLY_API' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_TWOFA_DEVICE' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_2FA_AUTOFILL' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_2FA_MAX_SUBMISSIONS' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_2FA_MAX_SUBMISSIONS_PER_WINDOW' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_2FA_SUBMISSION_RESET_SECONDS' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_SSH_PRIVATE_KEY_SECRET_NAME' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_TWS_USERID_SECRET_NAME' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_TWS_PASSWORD_SECRET_NAME' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_TOTP_SECRET_SECRET_NAME' "$workflow_file"
-grep -Fq 'vars.IB_GATEWAY_VNC_SERVER_PASSWORD_SECRET_NAME' "$workflow_file"
 grep -Fq 'gcloud secrets versions access latest' "$workflow_file"
 grep -Fq -- '--scp-flag="-o ServerAliveInterval=30"' "$workflow_file"
 grep -Fq 'resolve_secret()' "$workflow_file"
