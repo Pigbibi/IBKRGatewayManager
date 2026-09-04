@@ -21,6 +21,16 @@ on:
         options:
           - keepalive
           - full
+      approved_ref:
+        description: Approved source ref for a full deployment; only refs/heads/main is accepted.
+        required: false
+        default: ''
+        type: string
+      expected_sha:
+        description: Exact 40-character main commit SHA for a full deployment.
+        required: false
+        default: ''
+        type: string
       allow_vm_reset:
         description: permit automatic VM reset after SSH/SCP/deploy failure
         required: false
@@ -33,6 +43,11 @@ on:
         type: boolean
       sync_github_secrets_to_secret_manager:
         description: write current GitHub secrets into Secret Manager before deploy
+        required: false
+        default: false
+        type: boolean
+      allow_secret_version_cleanup:
+        description: permit deletion of old Secret Manager versions during an explicit secret sync
         required: false
         default: false
         type: boolean
@@ -167,9 +182,33 @@ jobs:
       WORKFLOW_DISPATCH_TARGET: ${{ github.event.inputs.target }}
       WORKFLOW_DISPATCH_ALLOW_VM_RESET: ${{ github.event.inputs.allow_vm_reset }}
       WORKFLOW_DISPATCH_REBUILD_WITHOUT_CACHE: ${{ github.event.inputs.rebuild_without_cache }}
+      WORKFLOW_DISPATCH_APPROVED_REF: ${{ github.event.inputs.approved_ref }}
+      WORKFLOW_DISPATCH_EXPECTED_SHA: ${{ github.event.inputs.expected_sha }}
+      WORKFLOW_DISPATCH_ALLOW_SECRET_VERSION_CLEANUP: ${{ github.event.inputs.allow_secret_version_cleanup }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+
+      - name: Verify full-deploy source provenance
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_mode == 'full' }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "${WORKFLOW_DISPATCH_EXPECTED_SHA:-}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "expected_sha must be a 40-character lowercase commit SHA." >&2
+            exit 1
+          fi
+          if [ "${WORKFLOW_DISPATCH_APPROVED_REF:-}" != "refs/heads/main" ] \
+            || [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "Full deployment is restricted to the approved main ref." >&2
+            exit 1
+          fi
+          checked_out_sha="$(git rev-parse HEAD)"
+          if [ "${WORKFLOW_DISPATCH_EXPECTED_SHA}" != "${GITHUB_SHA}" ] \
+            || [ "${WORKFLOW_DISPATCH_EXPECTED_SHA}" != "${checked_out_sha}" ]; then
+            echo "expected_sha does not match the dispatched and checked-out source." >&2
+            exit 1
+          fi
 
       - name: Check whether deployment config is complete
         env:
@@ -294,6 +333,11 @@ jobs:
           cleanup_secret_versions() {
             local secret_name="$1"
             local old_versions
+
+            if [ "${WORKFLOW_DISPATCH_ALLOW_SECRET_VERSION_CLEANUP:-false}" != "true" ]; then
+              echo "Skipping old Secret Manager version cleanup; explicit approval is required."
+              return 0
+            fi
 
             old_versions="$(
               gcloud secrets versions list "${secret_name}" \
