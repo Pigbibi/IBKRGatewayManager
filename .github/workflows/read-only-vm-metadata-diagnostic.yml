@@ -1,0 +1,129 @@
+name: Read-Only Gateway VM Metadata Diagnostic
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: One gateway target from IB_GATEWAY_TARGETS_JSON
+        required: true
+        type: string
+
+concurrency:
+  group: read-only-gateway-vm-metadata-${{ github.event.inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+    steps:
+      - id: resolve
+        name: Resolve one gateway target
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const raw = ${{ toJSON(vars.IB_GATEWAY_TARGETS_JSON) }};
+            if (!raw || !raw.trim()) {
+              core.setFailed("IB_GATEWAY_TARGETS_JSON is required");
+              return;
+            }
+            const loaded = JSON.parse(raw);
+            const targets = Array.isArray(loaded)
+              ? loaded
+              : Object.entries(loaded).map(([name, config]) => ({...config, name}));
+            const selectedName = ${{ toJSON(github.event.inputs.target) }};
+            const targetIndex = targets.findIndex((target) => target && target.name === selectedName);
+            if (targetIndex < 0) {
+              core.setFailed("Unknown gateway target; choose one configured target");
+              return;
+            }
+            const target = targets[targetIndex];
+            const crypto = require("crypto");
+            core.setOutput("matrix", JSON.stringify({include: [{
+              target_index: targetIndex,
+              target_digest: crypto.createHash("sha256").update(JSON.stringify(target)).digest("hex")
+            }]}));
+
+  diagnose:
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix: ${{ fromJson(needs.resolve.outputs.matrix) }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - id: metadata
+        name: Resolve masked VM metadata
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const raw = ${{ toJSON(vars.IB_GATEWAY_TARGETS_JSON) }};
+            const loaded = JSON.parse(raw);
+            const targets = Array.isArray(loaded)
+              ? loaded
+              : Object.entries(loaded).map(([name, config]) => ({...config, name}));
+            const target = targets[Number(${{ toJSON(matrix.target_index) }})];
+            const crypto = require("crypto");
+            if (!target || crypto.createHash("sha256").update(JSON.stringify(target)).digest("hex") !== ${{ toJSON(matrix.target_digest) }}) {
+              core.setFailed("Resolved gateway target changed between jobs");
+              return;
+            }
+            const values = {
+              GCP_PROJECT_ID: target.gcp_project_id,
+              GCP_WORKLOAD_IDENTITY_PROVIDER: target.gcp_workload_identity_provider,
+              GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: target.gcp_workload_identity_service_account,
+              GCE_INSTANCE_NAME: target.gce_instance_name,
+              GCE_ZONE: target.gce_zone,
+            };
+            for (const [name, value] of Object.entries(values)) {
+              if (!value) {
+                core.setFailed("Gateway metadata is incomplete");
+                return;
+              }
+              core.setSecret(String(value));
+              if (name.startsWith("GCP_WORKLOAD") || name === "GCP_PROJECT_ID") {
+                core.setOutput(name.toLowerCase(), String(value));
+              } else {
+                core.exportVariable(name, String(value));
+              }
+            }
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ steps.metadata.outputs.gcp_workload_identity_provider }}
+          service_account: ${{ steps.metadata.outputs.gcp_workload_identity_service_account }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ steps.metadata.outputs.gcp_project_id }}
+          version: '>= 416.0.0'
+
+      - name: Read VM metadata without connecting
+        run: |
+          set -euo pipefail
+          metadata_file="$(mktemp)"
+          trap 'rm -f "${metadata_file}"' EXIT
+          if ! gcloud compute instances describe "${GCE_INSTANCE_NAME}" \
+            --project "${GCP_PROJECT_ID}" \
+            --zone "${GCE_ZONE}" \
+            --format=json >"${metadata_file}" 2>&1; then
+            echo "GATEWAY_VM_DIAGNOSTIC_STATUS=METADATA_UNAVAILABLE"
+            exit 1
+          fi
+          VM_METADATA_FILE="${metadata_file}" python3 - <<'PY'
+          import json
+          import os
+
+          payload = json.load(open(os.environ["VM_METADATA_FILE"], encoding="utf-8"))
+          status = str(payload.get("status") or "UNKNOWN").upper()
+          if status == "RUNNING":
+              print("GATEWAY_VM_DIAGNOSTIC_STATUS=VM_RUNNING")
+          else:
+              print("GATEWAY_VM_DIAGNOSTIC_STATUS=VM_NOT_RUNNING")
+          print("GATEWAY_VM_DIAGNOSTIC_LIMIT=NO_GATEWAY_OR_CONTAINER_HEALTH_ASSERTION")
+          PY
