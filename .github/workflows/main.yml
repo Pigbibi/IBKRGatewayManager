@@ -794,5 +794,7 @@ jobs:
 
           log_step "Remote deploy failed; resetting VM, re-preparing workspace, and retrying once"
           reset_instance_and_wait_for_ssh
-          prepare_remote_workspace
+          if [ "${DEPLOY_MODE}" = "full" ]; then
+            prepare_remote_workspace
+          fi
           gcloud compute ssh "${REMOTE_TARGET}" "${SSH_FLAGS[@]}" --command "${REMOTE_DEPLOY_COMMAND}"
