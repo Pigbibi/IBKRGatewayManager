@@ -36,3 +36,5 @@ do
     exit 1
   fi
 done
+
+grep -Fq 'GCP_PROJECT_ID: ${{ steps.metadata.outputs.gcp_project_id }}' "$workflow_file"
