@@ -27,6 +27,33 @@ IBKRGatewayManager 是 QuantStrategyLab 的IBKR Gateway 运维工具。管理 IB
 - 会影响多个平台或策略包的改动，需要在文档中说明。
 - 遇到小型、通用的 Gateway 弹窗时，系统绝不自动点击确认。若 API 不可用，watcher 最多只会做一次不点击弹窗的容器重启；弹窗仍存在则继续失败关闭，交由人工审阅。
 
+## Gateway 目标配置
+
+部署 workflow 必须使用仓库级 Actions variable `IB_GATEWAY_TARGETS_JSON`。它是以非敏感目标标签为 key 的 JSON object（或每项包含 `name` 的 list）。每个目标自行提供 GCP project、Workload Identity provider、service account、VM 位置和部署参数；仓库中没有默认 gateway 或云账号。
+
+```json
+{
+  "gateway-a": {
+    "gcp_project_id": "<gcp-project-id>",
+    "gcp_workload_identity_provider": "projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>",
+    "gcp_workload_identity_service_account": "<service-account>@<gcp-project-id>.iam.gserviceaccount.com",
+    "gce_user": "<vm-user>",
+    "gce_instance_name": "<vm-name>",
+    "gce_zone": "<gcp-zone>",
+    "deploy_path": "/opt/ibkr-gateway",
+    "mode": "paper",
+    "container_name": "<container-name>",
+    "compose_project_name": "<compose-project>",
+    "compose_service_name": "<compose-service>",
+    "cloud_run_egress_cidr": "<trusted-egress-cidr>",
+    "allow_connections_from_localhost_only": "no",
+    "ssh_private_key_secret_name": "<secret-manager-secret-name>"
+  }
+}
+```
+
+使用 Secret Manager secret 的**名称**（full deploy 还要配置对应 credential secret-name 字段），不要写入 secret 值。不得提交目标 JSON、凭证、账户标识、地址或私钥。缺少目标配置时，会在任何云认证或远端操作前失败关闭。
+
 ## 仓库结构
 
 - `tests/`：单元测试、契约测试和回归测试。
