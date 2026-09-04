@@ -264,3 +264,17 @@ done
 grep -Fq 'name: Diagnose gateway target' "$repo_dir/.github/workflows/diagnose.yml"
 grep -Fq 'name: Capture gateway screen' "$repo_dir/.github/workflows/capture-screen.yml"
 grep -Fq 'name: Maintain gateway target' "$repo_dir/.github/workflows/remote-maintenance.yml"
+
+python3 - "$workflow_file" <<'PY'
+from pathlib import Path
+import sys
+
+workflow = Path(sys.argv[1]).read_text(encoding="utf-8")
+retry = """          log_step "Remote deploy failed; resetting VM, re-preparing workspace, and retrying once"
+          reset_instance_and_wait_for_ssh
+          if [ "${DEPLOY_MODE}" = "full" ]; then
+            prepare_remote_workspace
+          fi
+          gcloud compute ssh "${REMOTE_TARGET}" "${SSH_FLAGS[@]}" --command "${REMOTE_DEPLOY_COMMAND}"""
+assert retry in workflow
+PY
