@@ -275,11 +275,9 @@ from pathlib import Path
 import sys
 
 workflow = Path(sys.argv[1]).read_text(encoding="utf-8")
-retry = """          log_step "Remote deploy failed; resetting VM, re-preparing workspace, and retrying once"
-          reset_instance_and_wait_for_ssh
-          if [ "${DEPLOY_MODE}" = "full" ]; then
-            prepare_remote_workspace
-          fi
-          gcloud compute ssh "${REMOTE_TARGET}" "${SSH_FLAGS[@]}" --command "${REMOTE_DEPLOY_COMMAND}"""
-assert retry in workflow
+assert 'emit_sanitized_remote_failure_stage()' in workflow
+assert "GATEWAY_DEPLOY_FAILURE_STAGE=REMOTE_COMMAND_OR_TRANSPORT_FAILED" in workflow
+assert "GATEWAY_RECOVERY_FAILURE_STAGE=GATEWAY_NOT_READY_AFTER_RECREATE" in workflow
+assert 'gcloud compute ssh "${REMOTE_TARGET}" "${SSH_FLAGS[@]}" --command "${REMOTE_DEPLOY_COMMAND}" >"${command_log}" 2>&1' in workflow
+assert 'run_sanitized_remote_deploy' in workflow
 PY
