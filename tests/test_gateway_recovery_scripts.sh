@@ -50,6 +50,21 @@ grep -Fq 'IB_GATEWAY_RECOVERY_LOCK_WAIT_SECONDS:-900' "$recover_script"
 grep -Fq 'flock -n 9' "$recover_script"
 grep -Fq 'flock -w "${lock_wait_seconds}" 9' "$recover_script"
 grep -Fq 'compose_service_name="${IB_GATEWAY_COMPOSE_SERVICE_NAME:-ib-gateway}"' "$recover_script"
+grep -Fq 'fail_recovery()' "$recover_script"
+grep -Fq 'GATEWAY_RECOVERY_FAILURE_STAGE=${stage}' "$recover_script"
+grep -Fq 'CONTAINER_START_FAILED' "$recover_script"
+grep -Fq 'CONTAINER_RESTART_FAILED' "$recover_script"
+grep -Fq 'CONTAINER_RECREATE_FAILED' "$recover_script"
+grep -Fq 'GATEWAY_NOT_READY_AFTER_RECREATE' "$recover_script"
+! grep -Fq 'docker logs --tail 160' "$recover_script"
+if invalid_config_output="$(IB_GATEWAY_TRANSIENT_DIALOG_RESTART_ATTEMPTS=invalid bash "$recover_script" live 2>&1)"; then
+  echo "Invalid recovery configuration unexpectedly succeeded." >&2
+  exit 1
+else
+  invalid_config_status=$?
+fi
+test "$invalid_config_status" -eq 2
+test "$invalid_config_output" = 'GATEWAY_RECOVERY_FAILURE_STAGE=RECOVERY_CONFIGURATION_INVALID'
 grep -Fq 'docker compose restart "${compose_service_name}"' "$recover_script"
 grep -Fq 'docker compose up -d --force-recreate --no-build "${compose_service_name}"' "$recover_script"
 grep -Fq 'IB_GATEWAY_READY_TIMEOUT_SECONDS="${timeout_seconds}"' "$recover_script"

@@ -716,8 +716,34 @@ jobs:
             )
           fi
 
+          emit_sanitized_remote_failure_stage() {
+            local command_log="$1"
+            local recovery_stage
+            recovery_stage="$(grep -Eo 'GATEWAY_RECOVERY_FAILURE_STAGE=[A-Z0-9_]+' "${command_log}" | tail -n 1 || true)"
+            case "${recovery_stage}" in
+              GATEWAY_RECOVERY_FAILURE_STAGE=RECOVERY_CONFIGURATION_INVALID|              GATEWAY_RECOVERY_FAILURE_STAGE=RECOVERY_LOCK_TIMEOUT|              GATEWAY_RECOVERY_FAILURE_STAGE=GATEWAY_UI_BLOCKER|              GATEWAY_RECOVERY_FAILURE_STAGE=DIALOG_RECOVERY_NOT_READY|              GATEWAY_RECOVERY_FAILURE_STAGE=CONTAINER_START_FAILED|              GATEWAY_RECOVERY_FAILURE_STAGE=TWOFA_WATCHER_FAILED|              GATEWAY_RECOVERY_FAILURE_STAGE=CONTAINER_RESTART_FAILED|              GATEWAY_RECOVERY_FAILURE_STAGE=CONTAINER_RECREATE_FAILED|              GATEWAY_RECOVERY_FAILURE_STAGE=GATEWAY_NOT_READY_AFTER_RECREATE)
+                log_step "${recovery_stage}"
+                ;;
+              *)
+                log_step "GATEWAY_DEPLOY_FAILURE_STAGE=REMOTE_COMMAND_OR_TRANSPORT_FAILED"
+                ;;
+            esac
+          }
+
+          run_sanitized_remote_deploy() {
+            local command_log
+            command_log="$(mktemp)"
+            if gcloud compute ssh "${REMOTE_TARGET}" "${SSH_FLAGS[@]}" --command "${REMOTE_DEPLOY_COMMAND}" >"${command_log}" 2>&1; then
+              rm -f "${command_log}"
+              return 0
+            fi
+            emit_sanitized_remote_failure_stage "${command_log}"
+            rm -f "${command_log}"
+            return 1
+          }
+
           log_step "Running remote deploy commands for event ${DEPLOY_EVENT_NAME} in mode ${DEPLOY_MODE}"
-          if gcloud compute ssh "${REMOTE_TARGET}" "${SSH_FLAGS[@]}" --command "${REMOTE_DEPLOY_COMMAND}"; then
+          if run_sanitized_remote_deploy; then
             exit 0
           fi
 
@@ -726,4 +752,4 @@ jobs:
           if [ "${DEPLOY_MODE}" = "full" ]; then
             prepare_remote_workspace
           fi
-          gcloud compute ssh "${REMOTE_TARGET}" "${SSH_FLAGS[@]}" --command "${REMOTE_DEPLOY_COMMAND}"
+          run_sanitized_remote_deploy

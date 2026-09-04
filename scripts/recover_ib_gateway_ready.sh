@@ -21,11 +21,17 @@ lock_file="${IB_GATEWAY_RECOVERY_LOCK_FILE:-/var/lock/ib_gateway_recovery.lock}"
 lock_wait_seconds="${IB_GATEWAY_RECOVERY_LOCK_WAIT_SECONDS:-900}"
 transient_dialog_restart_count=0
 
+fail_recovery() {
+  local stage="$1"
+  local exit_code="${2:-1}"
+  echo "GATEWAY_RECOVERY_FAILURE_STAGE=${stage}" >&2
+  exit "${exit_code}"
+}
+
 for value_name in transient_dialog_restart_attempts transient_dialog_restart_wait_seconds; do
   value="${!value_name}"
-  if ! [[ "${value}" =~ ^[0-9]+$ ]] || [ "${value}" -eq 0 ] && [ "${value_name}" = "transient_dialog_restart_wait_seconds" ]; then
-    echo "${value_name} must be a non-negative integer; transient_dialog_restart_wait_seconds must be greater than zero." >&2
-    exit 2
+  if ! [[ "${value}" =~ ^[0-9]+$ ]] || { [ "${value_name}" = "transient_dialog_restart_wait_seconds" ] && [ "${value}" -eq 0 ]; }; then
+    fail_recovery "RECOVERY_CONFIGURATION_INVALID" 2
   fi
 done
 
@@ -39,8 +45,7 @@ if [ "${lock_wait_seconds}" = "0" ]; then
     exit 0
   fi
 elif ! flock -w "${lock_wait_seconds}" 9; then
-  echo "Timed out waiting for IB gateway recovery lock: ${lock_file}" >&2
-  exit 1
+  fail_recovery "RECOVERY_LOCK_TIMEOUT"
 fi
 
 echo "Acquired IB gateway recovery lock: ${lock_file}"
@@ -95,8 +100,7 @@ gateway_ui_blocker_present() {
 }
 
 stop_for_gateway_ui_blocker() {
-  echo "GATEWAY_UI_BLOCKER: Gateway dialog requires account/login review after bounded no-click recovery; skipping further automatic restart and recreate." >&2
-  exit 3
+  fail_recovery "GATEWAY_UI_BLOCKER" 3
 }
 
 recover_from_gateway_ui_blocker() {
@@ -117,8 +121,7 @@ recover_from_gateway_ui_blocker() {
     stop_for_gateway_ui_blocker
   fi
 
-  echo "IB gateway API remained unavailable after bounded no-click dialog recovery." >&2
-  exit 1
+  fail_recovery "DIALOG_RECOVERY_NOT_READY"
 }
 
 wait_for_ready_with_progress() {
@@ -154,8 +157,12 @@ ensure_2fa_bot_running() {
 }
 
 echo "Ensuring ${container_name} is running before readiness check."
-docker compose up -d --no-build "${compose_service_name}"
-ensure_2fa_bot_running
+if ! docker compose up -d --no-build "${compose_service_name}"; then
+  fail_recovery "CONTAINER_START_FAILED"
+fi
+if ! ensure_2fa_bot_running; then
+  fail_recovery "TWOFA_WATCHER_FAILED"
+fi
 
 if gateway_ui_blocker_present; then
   recover_from_gateway_ui_blocker
@@ -172,9 +179,12 @@ if [ "${initial_wait_status}" -eq 3 ]; then
 fi
 
 echo "IB gateway API was not ready; restarting ${container_name} and retrying." >&2
-docker compose ps >&2 || true
-docker compose restart "${compose_service_name}"
-ensure_2fa_bot_running
+if ! docker compose restart "${compose_service_name}"; then
+  fail_recovery "CONTAINER_RESTART_FAILED"
+fi
+if ! ensure_2fa_bot_running; then
+  fail_recovery "TWOFA_WATCHER_FAILED"
+fi
 
 if wait_for_ready_with_progress "${restart_wait_seconds}" "restart"; then
   exit 0
@@ -187,8 +197,12 @@ if [ "${restart_wait_status}" -eq 3 ]; then
 fi
 
 echo "IB gateway API is still not ready; recreating ${container_name} and retrying." >&2
-docker compose up -d --force-recreate --no-build "${compose_service_name}"
-ensure_2fa_bot_running
+if ! docker compose up -d --force-recreate --no-build "${compose_service_name}"; then
+  fail_recovery "CONTAINER_RECREATE_FAILED"
+fi
+if ! ensure_2fa_bot_running; then
+  fail_recovery "TWOFA_WATCHER_FAILED"
+fi
 
 if wait_for_ready_with_progress "${recreate_wait_seconds}" "recreate"; then
   exit 0
@@ -200,7 +214,4 @@ if [ "${recreate_wait_status}" -eq 3 ]; then
   recover_from_gateway_ui_blocker
 fi
 
-echo "IB gateway API did not recover after restart/recreate." >&2
-docker compose ps >&2 || true
-docker logs --tail 160 "${container_name}" >&2 || true
-exit 1
+fail_recovery "GATEWAY_NOT_READY_AFTER_RECREATE"
