@@ -55,6 +55,11 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - name: Checkout diagnostic classifier
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
       - id: metadata
         name: Resolve masked VM metadata
         uses: actions/github-script@v8
@@ -113,6 +118,7 @@ jobs:
             --zone "${GCE_ZONE}" \
             --format=json >"${metadata_file}" 2>&1; then
             echo "GATEWAY_VM_DIAGNOSTIC_STATUS=METADATA_UNAVAILABLE"
+            python3 scripts/classify_gcloud_metadata_failure.py --input "${metadata_file}"
             exit 1
           fi
           VM_METADATA_FILE="${metadata_file}" python3 - <<'PY'

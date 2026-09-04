@@ -14,7 +14,11 @@ grep -Fq 'target_index' "$workflow_file"
 grep -Fq 'target_digest' "$workflow_file"
 grep -Fq 'Resolved gateway target changed between jobs' "$workflow_file"
 grep -Fq 'gcloud compute instances describe' "$workflow_file"
+grep -Fq 'uses: actions/checkout@v6' "$workflow_file"
+grep -Fq 'persist-credentials: false' "$workflow_file"
 grep -Fq 'GATEWAY_VM_DIAGNOSTIC_STATUS=VM_RUNNING' "$workflow_file"
+grep -Fq 'scripts/classify_gcloud_metadata_failure.py' "$workflow_file"
+grep -Fq 'GATEWAY_VM_DIAGNOSTIC_FAILURE_CLASS=' "$repo_dir/scripts/classify_gcloud_metadata_failure.py"
 grep -Fq 'GATEWAY_VM_DIAGNOSTIC_LIMIT=NO_GATEWAY_OR_CONTAINER_HEALTH_ASSERTION' "$workflow_file"
 for forbidden in \
   'gcloud compute ssh' \
