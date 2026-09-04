@@ -1,0 +1,160 @@
+name: Read-Only Gateway Scheduler Diagnostic
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: One gateway target from IB_GATEWAY_TARGETS_JSON
+        required: true
+        type: string
+
+concurrency:
+  group: read-only-gateway-scheduler-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+    steps:
+      - id: resolve
+        name: Resolve one gateway target
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const raw = ${{ toJSON(vars.IB_GATEWAY_TARGETS_JSON) }};
+            if (!raw || !raw.trim()) {
+              core.setFailed("IB_GATEWAY_TARGETS_JSON is required");
+              return;
+            }
+            const loaded = JSON.parse(raw);
+            const targets = Array.isArray(loaded)
+              ? loaded
+              : Object.entries(loaded).map(([name, config]) => ({...config, name}));
+            const selectedName = ${{ toJSON(inputs.target) }};
+            const targetIndex = targets.findIndex((target) => target && target.name === selectedName);
+            if (targetIndex < 0) {
+              core.setFailed("Unknown gateway target; choose one configured target");
+              return;
+            }
+            const crypto = require("crypto");
+            const target = targets[targetIndex];
+            core.setOutput("matrix", JSON.stringify({include: [{
+              target_index: targetIndex,
+              target_digest: crypto.createHash("sha256").update(JSON.stringify(target)).digest("hex")
+            }]}));
+
+  diagnose:
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix: ${{ fromJson(needs.resolve.outputs.matrix) }}
+    permissions:
+      id-token: write
+    steps:
+      - id: metadata
+        name: Resolve masked scheduler metadata
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const raw = ${{ toJSON(vars.IB_GATEWAY_TARGETS_JSON) }};
+            const loaded = JSON.parse(raw);
+            const targets = Array.isArray(loaded)
+              ? loaded
+              : Object.entries(loaded).map(([name, config]) => ({...config, name}));
+            const target = targets[Number(${{ toJSON(matrix.target_index) }})];
+            const crypto = require("crypto");
+            if (!target || crypto.createHash("sha256").update(JSON.stringify(target)).digest("hex") !== ${{ toJSON(matrix.target_digest) }}) {
+              core.setFailed("Resolved gateway target changed between jobs");
+              return;
+            }
+            const schedulerTargets = target.cloud_scheduler;
+            if (!Array.isArray(schedulerTargets) || schedulerTargets.length === 0 || !schedulerTargets.every((entry) => (
+              entry && typeof entry.location === "string" && entry.location && Array.isArray(entry.jobs) &&
+              entry.jobs.length > 0 && entry.jobs.every((job) => typeof job === "string" && job)
+            ))) {
+              core.setFailed("Gateway scheduler mapping is incomplete");
+              return;
+            }
+            const values = {
+              GCP_PROJECT_ID: target.gcp_project_id,
+              GCP_WORKLOAD_IDENTITY_PROVIDER: target.gcp_workload_identity_provider,
+              GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: target.gcp_workload_identity_service_account,
+              SCHEDULER_TARGETS_JSON: JSON.stringify(schedulerTargets),
+            };
+            for (const [name, value] of Object.entries(values)) {
+              if (!value) {
+                core.setFailed("Gateway scheduler metadata is incomplete");
+                return;
+              }
+              core.setSecret(String(value));
+              if (name.startsWith("GCP_WORKLOAD") || name === "GCP_PROJECT_ID") {
+                core.setOutput(name.toLowerCase(), String(value));
+              } else {
+                core.exportVariable(name, String(value));
+              }
+            }
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ steps.metadata.outputs.gcp_workload_identity_provider }}
+          service_account: ${{ steps.metadata.outputs.gcp_workload_identity_service_account }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ steps.metadata.outputs.gcp_project_id }}
+          version: '>= 416.0.0'
+
+      - name: Read configured scheduler job states
+        env:
+          GCP_PROJECT_ID: ${{ steps.metadata.outputs.gcp_project_id }}
+        run: |
+          set -euo pipefail
+          checked=0
+          paused=0
+          unknown=0
+          unavailable=0
+          while IFS=$'\t' read -r location job; do
+            checked=$((checked + 1))
+            if ! state="$(gcloud scheduler jobs describe "${job}" \
+              --project "${GCP_PROJECT_ID}" \
+              --location "${location}" \
+              --format='value(state)' 2>/dev/null)"; then
+              unavailable=$((unavailable + 1))
+              continue
+            fi
+            case "${state}" in
+              ENABLED) ;;
+              PAUSED) paused=$((paused + 1)) ;;
+              *) unknown=$((unknown + 1)) ;;
+            esac
+          done < <(SCHEDULER_TARGETS_JSON="${SCHEDULER_TARGETS_JSON}" python3 - <<'PY'
+          import json
+          import os
+
+          for target in json.loads(os.environ["SCHEDULER_TARGETS_JSON"]):
+              for job in target["jobs"]:
+                  print(f'{target["location"]}\t{job}')
+          PY
+          )
+          if [ "${unavailable}" -gt 0 ]; then
+            echo "GATEWAY_SCHEDULER_DIAGNOSTIC_STATUS=METADATA_UNAVAILABLE"
+            echo "GATEWAY_SCHEDULER_DIAGNOSTIC_COUNTS=checked:${checked},unavailable:${unavailable}"
+            exit 1
+          fi
+          if [ "${paused}" -gt 0 ]; then
+            echo "GATEWAY_SCHEDULER_DIAGNOSTIC_STATUS=JOB_NOT_ENABLED"
+            echo "GATEWAY_SCHEDULER_DIAGNOSTIC_COUNTS=checked:${checked},paused:${paused}"
+            exit 1
+          fi
+          if [ "${unknown}" -gt 0 ]; then
+            echo "GATEWAY_SCHEDULER_DIAGNOSTIC_STATUS=JOB_STATE_UNAVAILABLE"
+            echo "GATEWAY_SCHEDULER_DIAGNOSTIC_COUNTS=checked:${checked},unknown:${unknown}"
+            exit 1
+          fi
+          echo "GATEWAY_SCHEDULER_DIAGNOSTIC_STATUS=ALL_CONFIGURED_JOBS_ENABLED"
+          echo "GATEWAY_SCHEDULER_DIAGNOSTIC_COUNTS=checked:${checked}"
