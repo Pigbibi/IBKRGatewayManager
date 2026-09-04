@@ -109,6 +109,8 @@ jobs:
           version: '>= 416.0.0'
 
       - name: Read VM metadata without connecting
+        env:
+          GCP_PROJECT_ID: ${{ steps.metadata.outputs.gcp_project_id }}
         run: |
           set -euo pipefail
           metadata_file="$(mktemp)"
