@@ -48,7 +48,7 @@ grep -Fq 'docker logs --tail 120 "${container_name}"' "$script_file"
 test -x "$blocker_probe_script"
 grep -Fq -- '--check-gateway-ui-blocker' "$blocker_probe_script"
 grep -Fq 'gateway_ui_blocker_present()' "$recovery_script"
-grep -Fq 'GATEWAY_UI_BLOCKER: Gateway dialog requires account/login review' "$recovery_script"
+grep -Fq 'fail_recovery "GATEWAY_UI_BLOCKER" 3' "$recovery_script"
 grep -Fq 'if gateway_ui_blocker_present; then' "$recovery_script"
 grep -Fq 'continuing with the scheduled no-click restart' "$daily_restart_script"
 

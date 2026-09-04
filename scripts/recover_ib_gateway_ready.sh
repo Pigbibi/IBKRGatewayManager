@@ -30,7 +30,7 @@ fail_recovery() {
 
 for value_name in transient_dialog_restart_attempts transient_dialog_restart_wait_seconds; do
   value="${!value_name}"
-  if ! [[ "${value}" =~ ^[0-9]+$ ]] || [ "${value}" -eq 0 ] && [ "${value_name}" = "transient_dialog_restart_wait_seconds" ]; then
+  if ! [[ "${value}" =~ ^[0-9]+$ ]] || { [ "${value_name}" = "transient_dialog_restart_wait_seconds" ] && [ "${value}" -eq 0 ]; }; then
     fail_recovery "RECOVERY_CONFIGURATION_INVALID" 2
   fi
 done
